@@ -35,7 +35,7 @@ export class ScreenManager {
    * Unmounts the current screen and mounts the new one.
    * @param {string} id - Screen ID to switch to
    */
-  switchTo(id) {
+  async switchTo(id) {
     if (id === this._activeId) return;
 
     const screen = this._screens.get(id);
@@ -56,12 +56,12 @@ export class ScreenManager {
     // Clear container
     this._container.innerHTML = '';
 
-    // Mount new screen
+    // Mount new screen (supports async mount)
     this._activeId = id;
     this._activeScreen = screen;
 
     try {
-      screen.mount(this._container);
+      await screen.mount(this._container);
     } catch (err) {
       console.error(`Error mounting screen ${id}:`, err);
     }

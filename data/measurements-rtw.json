@@ -1,0 +1,140 @@
+{
+  "units": "inches",
+  "sizes": {
+    "XS": {
+      "bust": 32, "waist": 25, "hip": 35,
+      "shoulderWidth": 14.5, "backWidth": 13.5,
+      "acrossFront": 13, "acrossBack": 13.5,
+      "neckCircumference": 13.5,
+      "armholeDepth": 7.5, "bicep": 10.5,
+      "wristCircumference": 6,
+      "shoulderToWaist": 16, "waistToHip": 8,
+      "fullLength": 40, "sleeveLength": 23,
+      "skirtLength": 22,
+      "inseam": 30
+    },
+    "S": {
+      "bust": 34, "waist": 27, "hip": 37,
+      "shoulderWidth": 15, "backWidth": 14,
+      "acrossFront": 13.5, "acrossBack": 14,
+      "neckCircumference": 14,
+      "armholeDepth": 8, "bicep": 11,
+      "wristCircumference": 6.25,
+      "shoulderToWaist": 16.5, "waistToHip": 8.25,
+      "fullLength": 41, "sleeveLength": 23.5,
+      "skirtLength": 23,
+      "inseam": 30.5
+    },
+    "M": {
+      "bust": 36, "waist": 29, "hip": 39,
+      "shoulderWidth": 15.5, "backWidth": 14.5,
+      "acrossFront": 14, "acrossBack": 14.5,
+      "neckCircumference": 14.5,
+      "armholeDepth": 8.5, "bicep": 12,
+      "wristCircumference": 6.5,
+      "shoulderToWaist": 17, "waistToHip": 8.5,
+      "fullLength": 42, "sleeveLength": 24,
+      "skirtLength": 24,
+      "inseam": 31
+    },
+    "L": {
+      "bust": 40, "waist": 33, "hip": 43,
+      "shoulderWidth": 16.5, "backWidth": 15.5,
+      "acrossFront": 15, "acrossBack": 15.5,
+      "neckCircumference": 15.5,
+      "armholeDepth": 9, "bicep": 13.5,
+      "wristCircumference": 7,
+      "shoulderToWaist": 17.5, "waistToHip": 9,
+      "fullLength": 43, "sleeveLength": 24.5,
+      "skirtLength": 25,
+      "inseam": 31
+    },
+    "XL": {
+      "bust": 44, "waist": 37, "hip": 47,
+      "shoulderWidth": 17.5, "backWidth": 16.5,
+      "acrossFront": 16, "acrossBack": 16.5,
+      "neckCircumference": 16.5,
+      "armholeDepth": 9.5, "bicep": 15,
+      "wristCircumference": 7.5,
+      "shoulderToWaist": 18, "waistToHip": 9.5,
+      "fullLength": 44, "sleeveLength": 25,
+      "skirtLength": 26,
+      "inseam": 31.5
+    }
+  },
+  "projectTemplates": {
+    "apron": {
+      "name": "Classic Apron",
+      "tier": "beginner",
+      "requiredMeasurements": ["bust", "waist", "shoulderToWaist", "skirtLength"],
+      "pieces": [
+        {
+          "id": "apron-body",
+          "name": "Apron Body",
+          "type": "rectangular",
+          "widthFormula": "waist + 8",
+          "heightFormula": "shoulderToWaist + skirtLength - 4",
+          "seamAllowance": 0.625,
+          "grainlineAngle": 0
+        },
+        {
+          "id": "apron-bib",
+          "name": "Bib",
+          "type": "shaped",
+          "widthFormula": "bust / 4 + 2",
+          "heightFormula": "shoulderToWaist - 4",
+          "seamAllowance": 0.625,
+          "grainlineAngle": 0
+        },
+        {
+          "id": "apron-waistband",
+          "name": "Waistband",
+          "type": "rectangular",
+          "widthFormula": "waist + 20",
+          "heightFormula": "3",
+          "seamAllowance": 0.5,
+          "grainlineAngle": 0
+        },
+        {
+          "id": "apron-neck-strap",
+          "name": "Neck Strap",
+          "type": "rectangular",
+          "widthFormula": "24",
+          "heightFormula": "2.5",
+          "seamAllowance": 0.5,
+          "grainlineAngle": 0
+        }
+      ]
+    },
+    "lined-skirt": {
+      "name": "Lined A-Line Skirt",
+      "tier": "intermediate",
+      "requiredMeasurements": ["waist", "hip", "waistToHip", "skirtLength"],
+      "pieces": [
+        {
+          "id": "skirt-front",
+          "name": "Front Panel",
+          "type": "shaped",
+          "seamAllowance": 0.625,
+          "grainlineAngle": 0
+        },
+        {
+          "id": "skirt-back",
+          "name": "Back Panel",
+          "type": "shaped",
+          "seamAllowance": 0.625,
+          "grainlineAngle": 0
+        },
+        {
+          "id": "skirt-waistband",
+          "name": "Waistband",
+          "type": "rectangular",
+          "widthFormula": "waist + 4",
+          "heightFormula": "3",
+          "seamAllowance": 0.625,
+          "grainlineAngle": 0
+        }
+      ]
+    }
+  }
+}
