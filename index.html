@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1a1a2e">
+  <link rel="manifest" href="manifest.json">
+  <title>Thread &amp; Template</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/drafting.css">
+  <link rel="stylesheet" href="css/ui-screens.css">
+</head>
+<body>
+  <header id="app-header">
+    <h1 class="app-title">Thread &amp; Template</h1>
+    <span class="app-subtitle">Parametric Couture Studio</span>
+  </header>
+
+  <nav id="app-nav">
+    <button class="nav-tab" data-screen="inspiration" aria-label="Inspiration Board">
+      <span class="nav-icon">&#9733;</span>
+      <span class="nav-label">Inspire</span>
+    </button>
+    <button class="nav-tab" data-screen="queue" aria-label="Sewing Queue">
+      <span class="nav-icon">&#9776;</span>
+      <span class="nav-label">Queue</span>
+    </button>
+    <button class="nav-tab active" data-screen="drafting" aria-label="Drafting Canvas">
+      <span class="nav-icon">&#9998;</span>
+      <span class="nav-label">Draft</span>
+    </button>
+    <button class="nav-tab" data-screen="material" aria-label="Material Layout">
+      <span class="nav-icon">&#9634;</span>
+      <span class="nav-label">Fabric</span>
+    </button>
+    <button class="nav-tab" data-screen="assembly" aria-label="Assembly Puzzles">
+      <span class="nav-icon">&#9881;</span>
+      <span class="nav-label">Build</span>
+    </button>
+  </nav>
+
+  <main id="screen-container"></main>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

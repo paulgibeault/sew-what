@@ -1,0 +1,9 @@
+{
+  "name": "sew-what",
+  "version": "0.1.0",
+  "description": "Thread & Template — Parametric garment design and assembly puzzle game",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"No tests configured\" && exit 0"
+  }
+}
