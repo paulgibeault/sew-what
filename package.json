@@ -4,6 +4,6 @@
   "description": "Thread & Template — Parametric garment design and assembly puzzle game",
   "type": "module",
   "scripts": {
-    "test": "echo \"No tests configured\" && exit 0"
+    "test": "node --test test/**/*.test.js"
   }
 }
