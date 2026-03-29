@@ -4,6 +4,6 @@
   "description": "Thread & Template — Parametric garment design and assembly puzzle game",
   "type": "module",
   "scripts": {
-    "test": "node --test test/utils.test.js test/validator.test.js test/sewing-machine.test.js"
+    "test": "node --test test/utils.test.js test/validator.test.js test/sewing-machine.test.js test/scoring.test.js test/step-engine.test.js test/layout-validator.test.js"
   }
 }
