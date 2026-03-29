@@ -130,6 +130,16 @@ html, body {
   background: var(--color-bg-elevated);
 }
 
+.nav-tab.locked {
+  opacity: 0.35;
+  pointer-events: auto;
+}
+
+.nav-tab.locked .nav-label::after {
+  content: ' \1F512';
+  font-size: 8px;
+}
+
 .nav-tab.active {
   color: var(--color-accent-light);
 }

@@ -104,7 +104,7 @@ export const DRAFTING = Object.freeze({
   GRID_MAJOR_EVERY:     10,    // major gridline every N units
   DEFAULT_SEAM_ALLOW:   0.625, // inches (5/8")
   MIN_SEAM_ALLOW:       0.25,  // inches (1/4")
-  ANCHOR_RADIUS:        4,     // SVG units
+  ANCHOR_RADIUS:        6,     // SVG units
   ANCHOR_HIT_RADIUS:    12,    // touch target radius
   SNAP_THRESHOLD:        5,    // snap-to-grid threshold in px
   ZOOM_MIN:             0.25,

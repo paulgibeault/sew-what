@@ -53,7 +53,7 @@ export function createInitialState() {
     },
 
     // Current screen
-    currentScreen: SCREEN.DRAFTING,
+    currentScreen: SCREEN.QUEUE,
 
     // Settings
     settings: {

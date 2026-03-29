@@ -4,9 +4,9 @@
    validation, and 3D silhouette preview
    ============================================================ */
 
-import { TOOL, SCREEN, DRAFTING } from '../constants.js';
+import { TOOL, SCREEN, STAGE, DRAFTING } from '../constants.js';
 import { INPUT } from '../input.js';
-import { getState, updateNested } from '../state.js';
+import { getState, updateState, updateNested } from '../state.js';
 import { SVGCanvas } from '../drafting/svg-canvas.js';
 import { SilhouettePreview } from '../drafting/preview-3d.js';
 import { createPattern, moveAnchor } from '../drafting/pattern.js';
@@ -14,6 +14,8 @@ import { findAnchorAt, constrainPosition } from '../drafting/anchors.js';
 import { validatePattern } from '../drafting/validator.js';
 import { loadMeasurements, getMeasurementSet, getProjectTemplate, getAvailableSizes } from '../drafting/measurements.js';
 import { showToast } from '../ui.js';
+import { navigateTo } from '../navigation.js';
+import { deepClone } from '../utils.js';
 
 // --- Module State ---
 let _container = null;
@@ -275,7 +277,9 @@ function _findAnchorInPattern(svgX, svgY) {
 }
 
 function _createDefaultPattern() {
-  const template = getProjectTemplate('apron');
+  const state = getState();
+  const projectId = (state.activeProject && state.activeProject.projectId) || 'apron';
+  const template = getProjectTemplate(projectId);
   const measurements = getMeasurementSet(_selectedSize);
 
   if (!template || !measurements) {
@@ -293,7 +297,7 @@ function _createDefaultPattern() {
     _svgCanvas.fitToPattern(_currentPattern);
   }
 
-  _setValidationStatus('Pattern loaded — drag points to adjust, then Validate', null);
+  _setValidationStatus('Drag the corner points (\u25CF) to reshape pieces, then click Validate', null);
   _dirty = true;
 }
 
@@ -336,9 +340,23 @@ function _validateCurrentPattern() {
   if (result.valid) {
     _setValidationStatus('Pattern Valid', true);
     showToast('Pattern validated successfully!', 'success');
+
+    // Save validated pattern to active project state immediately
+    const state = getState();
+    if (state.activeProject) {
+      updateState({
+        activeProject: {
+          ...state.activeProject,
+          pattern: deepClone(_currentPattern),
+        },
+      });
+    }
+
+    _showProceedButton();
   } else {
     _setValidationStatus('Validation Failed', false, result.errors);
     showToast(`${result.errors.length} issue(s) found`, 'error');
+    _hideProceedButton();
   }
 
   _dirty = true;
@@ -401,7 +419,7 @@ function _populateSizeSelect() {
 
 function _bindToolbar() {
   // Tool buttons
-  _container.addEventListener('pointerup', (e) => {
+  _container.addEventListener('click', (e) => {
     const toolBtn = e.target.closest('.tool-btn');
     if (toolBtn) {
       const tool = toolBtn.getAttribute('data-tool');
@@ -417,13 +435,13 @@ function _bindToolbar() {
   // Validate button
   const validateBtn = document.getElementById('validate-btn');
   if (validateBtn) {
-    validateBtn.addEventListener('pointerup', () => _validateCurrentPattern());
+    validateBtn.addEventListener('click', () => _validateCurrentPattern());
   }
 
   // Fit view button
   const fitBtn = document.getElementById('fit-btn');
   if (fitBtn) {
-    fitBtn.addEventListener('pointerup', () => {
+    fitBtn.addEventListener('click', () => {
       if (_svgCanvas && _currentPattern) {
         _svgCanvas.fitToPattern(_currentPattern);
         _dirty = true;
@@ -456,4 +474,55 @@ function _bindToolbar() {
       _dirty = true;
     });
   }
+}
+
+// --- Proceed to Fabric ---
+
+function _showProceedButton() {
+  const panel = document.getElementById('validation-panel');
+  if (!panel || panel.querySelector('#proceed-btn')) return;
+
+  const state = getState();
+  if (!state.activeProject) {
+    // Show hint if no active project
+    const hint = document.createElement('div');
+    hint.style.cssText = 'font-size:11px; color:var(--color-text-muted); margin-top:8px;';
+    hint.textContent = 'Start a project from the Queue to proceed.';
+    panel.appendChild(hint);
+    return;
+  }
+
+  const btn = document.createElement('button');
+  btn.id = 'proceed-btn';
+  btn.className = 'btn btn-primary';
+  btn.style.cssText = 'margin-top:10px; width:100%;';
+  btn.textContent = 'Proceed to Fabric \u2192';
+  btn.addEventListener('click', _proceedToMaterial);
+  panel.appendChild(btn);
+}
+
+function _hideProceedButton() {
+  const btn = document.getElementById('proceed-btn');
+  if (btn) btn.remove();
+}
+
+function _proceedToMaterial() {
+  const state = getState();
+  if (!state.activeProject) {
+    showToast('Start a project from the Queue first', 'warning');
+    return;
+  }
+
+  // Save pattern to active project and advance stage
+  const pattern = deepClone(_currentPattern);
+  updateState({
+    activeProject: {
+      ...state.activeProject,
+      pattern,
+      stage: STAGE.MATERIAL,
+      score: { ...state.activeProject.score, accuracy: 1.0 },
+    },
+  });
+
+  navigateTo(SCREEN.MATERIAL);
 }

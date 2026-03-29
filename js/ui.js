@@ -3,7 +3,8 @@
    Manages header, navigation tabs, and modal overlays
    ============================================================ */
 
-import { SCREEN } from './constants.js';
+import { SCREEN, STAGE } from './constants.js';
+import { getState } from './state.js';
 
 let _onScreenChange = null;
 
@@ -99,6 +100,29 @@ const SCREEN_SUBTITLES = {
 export function onScreenChanged(screenId) {
   setActiveTab(screenId);
   setSubtitle(SCREEN_SUBTITLES[screenId] || 'Parametric Couture Studio');
+  _updateTabLocks();
+}
+
+/**
+ * Update nav tab locked/unlocked visual state based on active project stage.
+ */
+function _updateTabLocks() {
+  const state = getState();
+  const ap = state.activeProject;
+
+  const tabs = document.querySelectorAll('.nav-tab');
+  for (const tab of tabs) {
+    const screenId = tab.getAttribute('data-screen');
+    let locked = false;
+
+    if (screenId === SCREEN.MATERIAL) {
+      locked = !ap || !ap.pattern || !ap.pattern.validated;
+    } else if (screenId === SCREEN.ASSEMBLY) {
+      locked = !ap || !ap.materialLayout;
+    }
+
+    tab.classList.toggle('locked', locked);
+  }
 }
 
 // --- Internal ---

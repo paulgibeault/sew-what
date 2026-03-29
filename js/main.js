@@ -10,6 +10,7 @@ import { updateTweens, hasTweens } from './tween.js';
 import { InputManager } from './input.js';
 import { ScreenManager } from './screens/screen-manager.js';
 import { initUI, onScreenChanged } from './ui.js';
+import { initNavigation, navigateTo } from './navigation.js';
 
 // Screen modules
 import * as inspirationScreen from './screens/inspiration-screen.js';
@@ -48,9 +49,12 @@ function init() {
   screenManager.register(SCREEN.MATERIAL, materialScreen);
   screenManager.register(SCREEN.ASSEMBLY, assemblyScreen);
 
-  // Initialize UI (nav tabs)
+  // Wire up navigation with stage guards
+  initNavigation(switchScreen);
+
+  // Initialize UI (nav tabs use navigateTo for stage-gated routing)
   initUI({
-    onScreenChange: switchScreen,
+    onScreenChange: navigateTo,
   });
 
   // Initialize input on the screen container

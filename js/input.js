@@ -98,6 +98,13 @@ export class InputManager {
   }
 
   _onPointerDown(e) {
+    // Don't capture pointer on interactive DOM elements — let clicks propagate normally
+    const tag = e.target.tagName;
+    const isInteractive = tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT' ||
+      tag === 'LABEL' || tag === 'A' ||
+      e.target.closest('button, input, select, label, a, .btn, .project-card, .picker-option, .nav-tab');
+    if (isInteractive) return;
+
     this._el.setPointerCapture(e.pointerId);
     const pos = this._getPos(e);
 
