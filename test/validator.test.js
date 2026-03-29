@@ -5,8 +5,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validatePattern } from '../js/drafting/validator.js';
-import { VALIDATION, DRAFTING } from '../js/constants.js';
+import { validatePattern, validateNotchPairing, validateSeamLengths } from '../js/drafting/validator.js';
+import { VALIDATION, DRAFTING, NOTCH_TYPE } from '../js/constants.js';
 
 // --- Helpers ---
 
@@ -210,5 +210,202 @@ describe('validatePattern — result shape', () => {
     assert.ok(err.type, 'error should have type');
     assert.ok(err.pieceId, 'error should have pieceId');
     assert.ok(typeof err.message === 'string', 'error should have message string');
+  });
+});
+
+// ============================================================
+// A4: Enhanced pattern piece metadata tests
+// ============================================================
+
+// (validateNotchPairing, validateSeamLengths, VALIDATION, NOTCH_TYPE imported above)
+
+function makeSquarePieceA4(overrides = {}) {
+  return {
+    id: 'piece-1',
+    name: 'Test Piece',
+    seamAllowance: 0.625,
+    grainlineAngle: 0,
+    grainline: null,
+    foldLine: null,
+    mirrorPiece: false,
+    cutCount: 2,
+    notches: [],
+    drillHoles: [],
+    seamLabels: [],
+    fabric: 'self',
+    anchors: [
+      { id: 'a1', x: 0,   y: 0   },
+      { id: 'a2', x: 100, y: 0   },
+      { id: 'a3', x: 100, y: 100 },
+      { id: 'a4', x: 0,   y: 100 },
+    ],
+    segments: [
+      { id: 's1', from: 'a1', to: 'a2' },
+      { id: 's2', from: 'a2', to: 'a3' },
+      { id: 's3', from: 'a3', to: 'a4' },
+      { id: 's4', from: 'a4', to: 'a1' },
+    ],
+    ...overrides,
+  };
+}
+
+describe('validatePattern — A4 notch types', () => {
+  it('passes when notches array is empty', () => {
+    const piece = makeSquarePieceA4({ notches: [] });
+    const result = validatePattern(makePattern([piece]));
+    assert.ok(result.valid, `errors: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('passes when notches have valid types', () => {
+    const piece = makeSquarePieceA4({
+      notches: [
+        { id: 'n1', x: 50, y: 0, type: NOTCH_TYPE.SINGLE, matchId: null },
+        { id: 'n2', x: 50, y: 100, type: NOTCH_TYPE.DOUBLE, matchId: null },
+      ],
+    });
+    const result = validatePattern(makePattern([piece]));
+    const err = result.errors.find(e => e.type === VALIDATION.INVALID_NOTCH_TYPE);
+    assert.ok(!err, 'valid notch types should not error');
+  });
+
+  it('fails when a notch has an invalid type', () => {
+    const piece = makeSquarePieceA4({
+      notches: [{ id: 'n1', x: 50, y: 0, type: 'star', matchId: null }],
+    });
+    const result = validatePattern(makePattern([piece]));
+    const err = result.errors.find(e => e.type === VALIDATION.INVALID_NOTCH_TYPE);
+    assert.ok(err, 'expected INVALID_NOTCH_TYPE error');
+    assert.equal(err.pieceId, 'piece-1');
+  });
+});
+
+describe('validatePattern — A4 fold line grain validation', () => {
+  it('passes when foldLine is null (no fold)', () => {
+    const piece = makeSquarePieceA4({ foldLine: null });
+    const result = validatePattern(makePattern([piece]));
+    const err = result.errors.find(e => e.type === VALIDATION.FOLD_NOT_ON_GRAIN);
+    assert.ok(!err, 'null fold line should not error');
+  });
+
+  it('passes for a horizontal fold line', () => {
+    const piece = makeSquarePieceA4({ foldLine: { x1: 0, y1: 50, x2: 100, y2: 50 } });
+    const result = validatePattern(makePattern([piece]));
+    const err = result.errors.find(e => e.type === VALIDATION.FOLD_NOT_ON_GRAIN);
+    assert.ok(!err, 'horizontal fold line should be valid');
+  });
+
+  it('passes for a vertical fold line', () => {
+    const piece = makeSquarePieceA4({ foldLine: { x1: 50, y1: 0, x2: 50, y2: 100 } });
+    const result = validatePattern(makePattern([piece]));
+    const err = result.errors.find(e => e.type === VALIDATION.FOLD_NOT_ON_GRAIN);
+    assert.ok(!err, 'vertical fold line should be valid');
+  });
+
+  it('fails for a diagonal fold line (45 degrees)', () => {
+    const piece = makeSquarePieceA4({ foldLine: { x1: 0, y1: 0, x2: 100, y2: 100 } });
+    const result = validatePattern(makePattern([piece]));
+    const err = result.errors.find(e => e.type === VALIDATION.FOLD_NOT_ON_GRAIN);
+    assert.ok(err, 'diagonal fold line should fail grain check');
+  });
+});
+
+describe('validatePattern — A4 seam label orphan check', () => {
+  it('passes when seamLabels is empty', () => {
+    const piece = makeSquarePieceA4({ seamLabels: [] });
+    const result = validatePattern(makePattern([piece]));
+    assert.ok(result.valid);
+  });
+
+  it('passes when seamLabel references valid segment', () => {
+    const piece = makeSquarePieceA4({
+      seamLabels: [{ segmentId: 's1', label: 'Stitch to Back' }],
+    });
+    const result = validatePattern(makePattern([piece]));
+    const err = result.errors.find(e => e.type === VALIDATION.SEAM_LABEL_ORPHAN);
+    assert.ok(!err, 'valid segmentId should not error');
+  });
+
+  it('fails when seamLabel references missing segment', () => {
+    const piece = makeSquarePieceA4({
+      seamLabels: [{ segmentId: 'missing-seg', label: 'Stitch to Front' }],
+    });
+    const result = validatePattern(makePattern([piece]));
+    const err = result.errors.find(e => e.type === VALIDATION.SEAM_LABEL_ORPHAN);
+    assert.ok(err, 'expected SEAM_LABEL_ORPHAN error');
+  });
+});
+
+describe('validateNotchPairing', () => {
+  it('passes when notches have no matchId', () => {
+    const p1 = makeSquarePieceA4({ id: 'p1', name: 'Front',
+      notches: [{ id: 'n1', x: 50, y: 0, type: NOTCH_TYPE.SINGLE, matchId: null }],
+    });
+    const errors = validateNotchPairing({ pieces: [p1] });
+    assert.equal(errors.length, 0);
+  });
+
+  it('passes when matchId references existing notch on another piece', () => {
+    const p1 = makeSquarePieceA4({ id: 'p1', name: 'Front',
+      notches: [{ id: 'n1', x: 50, y: 0, type: NOTCH_TYPE.SINGLE, matchId: 'n2' }],
+    });
+    const p2 = makeSquarePieceA4({ id: 'p2', name: 'Back',
+      notches: [{ id: 'n2', x: 50, y: 0, type: NOTCH_TYPE.SINGLE, matchId: 'n1' }],
+    });
+    const errors = validateNotchPairing({ pieces: [p1, p2] });
+    assert.equal(errors.length, 0);
+  });
+
+  it('fails when matchId references a notch that does not exist', () => {
+    const p1 = makeSquarePieceA4({ id: 'p1', name: 'Front',
+      notches: [{ id: 'n1', x: 50, y: 0, type: NOTCH_TYPE.SINGLE, matchId: 'ghost' }],
+    });
+    const errors = validateNotchPairing({ pieces: [p1] });
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].type, VALIDATION.NOTCH_UNPAIRED);
+  });
+});
+
+describe('validateSeamLengths', () => {
+  it('passes when no seam labels are present', () => {
+    const p1 = makeSquarePieceA4({ id: 'p1', name: 'Front', seamLabels: [] });
+    const errors = validateSeamLengths({ pieces: [p1] });
+    assert.equal(errors.length, 0);
+  });
+
+  it('passes when matching seams have equal length', () => {
+    // Both pieces are 100x100 squares, shared seam is 100px on the top edge
+    const p1 = makeSquarePieceA4({ id: 'p1', name: 'Front',
+      seamLabels: [{ segmentId: 's1', label: 'join-bib' }],
+    });
+    const p2 = makeSquarePieceA4({ id: 'p2', name: 'Back',
+      seamLabels: [{ segmentId: 's1', label: 'join-bib' }],
+    });
+    const errors = validateSeamLengths({ pieces: [p1, p2] });
+    assert.equal(errors.length, 0, `unexpected errors: ${JSON.stringify(errors)}`);
+  });
+
+  it('fails when matching seams have mismatched lengths beyond tolerance', () => {
+    const p1 = makeSquarePieceA4({ id: 'p1', name: 'Front',
+      seamLabels: [{ segmentId: 's1', label: 'join-side' }],
+    });
+    // Make p2 have a much wider top edge (200px wide) — length 200 vs 100
+    const p2 = makeSquarePieceA4({ id: 'p2', name: 'Back',
+      anchors: [
+        { id: 'a1', x: 0,   y: 0   },
+        { id: 'a2', x: 200, y: 0   },  // wide!
+        { id: 'a3', x: 200, y: 100 },
+        { id: 'a4', x: 0,   y: 100 },
+      ],
+      segments: [
+        { id: 's1', from: 'a1', to: 'a2' },
+        { id: 's2', from: 'a2', to: 'a3' },
+        { id: 's3', from: 'a3', to: 'a4' },
+        { id: 's4', from: 'a4', to: 'a1' },
+      ],
+      seamLabels: [{ segmentId: 's1', label: 'join-side' }],
+    });
+    const errors = validateSeamLengths({ pieces: [p1, p2] });
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].type, VALIDATION.SEAM_LENGTH_MISMATCH);
   });
 });
