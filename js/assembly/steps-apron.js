@@ -5,9 +5,18 @@
 
 export const APRON_STEPS = [
   {
+    id: 'hem-bib',
+    name: 'Hem the Bib Edges',
+    instruction: 'Fold the bib side and top edges in 1/4" twice to create a narrow double-fold hem. Sew along the folded edge to secure.',
+    detail: 'Hem individual pieces before joining them. The bib gets a narrower 1/4" hem since it sits against the chest. Press each fold with an iron before stitching.',
+    type: 'straight-seam',
+    piece: 'apron-bib',
+    edge: 'top',
+  },
+  {
     id: 'hem-body-bottom',
     name: 'Hem the Bottom Edge',
-    instruction: 'Fold the bottom edge up 1/2", then fold again 1/2" to enclose the raw edge. Trace the stitch line to secure the hem.',
+    instruction: 'Fold the bottom edge up 1/2", then fold again 1/2" to enclose the raw edge. Sew the stitch line to secure the hem.',
     detail: 'A double-fold hem hides the raw fabric edge inside the fold, preventing fraying. Stitch close to the inner folded edge.',
     type: 'straight-seam',
     piece: 'apron-body',
@@ -16,7 +25,7 @@ export const APRON_STEPS = [
   {
     id: 'hem-body-sides',
     name: 'Hem the Side Edges',
-    instruction: 'Fold each side edge in 1/2" twice (double-fold hem). Trace the stitch line down the left side.',
+    instruction: 'Fold each side edge in 1/2" twice (double-fold hem). Sew the stitch line down the left side.',
     detail: 'Side hems use the same double-fold technique. Press each fold before stitching for clean results.',
     type: 'straight-seam',
     piece: 'apron-body',
@@ -31,15 +40,6 @@ export const APRON_STEPS = [
     piece: 'apron-body',
     attachPiece: 'apron-bib',
     attachEdge: 'top-center',
-  },
-  {
-    id: 'hem-bib',
-    name: 'Hem the Bib Edges',
-    instruction: 'Fold the bib side and top edges in 1/4" twice. Trace the stitch line along the top.',
-    detail: 'The bib gets a narrower hem (1/4") since it is a smaller piece. Press before stitching.',
-    type: 'straight-seam',
-    piece: 'apron-bib',
-    edge: 'top',
   },
   {
     id: 'attach-waistband',

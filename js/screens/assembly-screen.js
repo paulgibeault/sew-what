@@ -1,6 +1,6 @@
 /* ============================================================
    Thread & Template — Assembly Puzzles Screen (Stage III)
-   Step-by-step construction using actual pattern piece shapes
+   Fold-then-sew construction using cloth physics simulation
    ============================================================ */
 
 import { SCREEN, STAGE, DRAFTING, COLORS } from '../constants.js';
@@ -8,10 +8,12 @@ import { INPUT } from '../input.js';
 import { getState, updateState } from '../state.js';
 import { showToast } from '../ui.js';
 import { navigateTo } from '../navigation.js';
-import { deepClone } from '../utils.js';
+import { deepClone, clamp } from '../utils.js';
 import { APRON_STEPS } from '../assembly/steps-apron.js';
 import { createAssemblyState, getCurrentStep, completeStep, isAssemblyComplete, getAverageScore } from '../assembly/step-engine.js';
-import { StraightSeamGame, AlignAndSewGame } from '../assembly/mini-games.js';
+import { SewingMachine, createStraightSeam } from '../assembly/sewing-machine.js';
+import { ClothSim } from '../fabric/cloth-sim.js';
+import { ClothRenderer } from '../fabric/cloth-renderer.js';
 import { getPieceBounds, getOutlinePath } from '../drafting/pattern.js';
 import { calculateFinalScore, getGrade } from '../scoring.js';
 
@@ -20,13 +22,34 @@ const PPI = DRAFTING.PX_PER_INCH;
 let _container = null;
 let _el = null;
 let _assemblyState = null;
-let _currentGame = null;
 let _pattern = null;
 let _dirty = true;
 let _showResults = false;
 
 // Layout: map piece IDs to positions in the SVG viewBox
-let _layout = null;  // { pieceId: { x, y, w, h, scale } }
+let _layout = null;
+
+// Step phase: each step has fold phase then sew phase
+let _stepPhase = 'idle'; // 'idle' | 'fold' | 'sew'
+
+// Cloth simulation (fold phase)
+let _clothSim = null;
+let _clothRenderer = null;
+let _clothCanvas = null;
+let _foldState = null; // { edge, foldTargetY/X, grabbedParticles, folded }
+
+// Sewing machine (sew phase)
+let _sewingMachine = null;
+let _sewingCanvas = null;
+
+// Align-and-sew drag state (fold phase for attach steps)
+let _alignState = null; // { pieceId, x, y, targetX, targetY, w, h, aligned }
+
+/** Check if saved assembly state step IDs match current step definitions */
+function _stepsMatch(savedSteps, currentSteps) {
+  if (!savedSteps || savedSteps.length !== currentSteps.length) return false;
+  return savedSteps.every((s, i) => s.id === currentSteps[i].id);
+}
 
 export function mount(container) {
   _container = container;
@@ -40,22 +63,24 @@ export function mount(container) {
     return;
   }
 
-  // Compute layout from actual pattern pieces
   _layout = _computeLayout(_pattern);
 
-  if (ap.assemblyState) {
+  if (ap.assemblyState && _stepsMatch(ap.assemblyState.steps, APRON_STEPS)) {
     _assemblyState = deepClone(ap.assemblyState);
   } else {
     _assemblyState = createAssemblyState(APRON_STEPS);
   }
 
   _showResults = false;
+  _stepPhase = 'idle';
   _el = document.createElement('div');
   _el.className = 'screen assembly-screen';
   _el.innerHTML = `
     <div class="assembly-header" id="assembly-header"></div>
     <div class="assembly-canvas-area" id="assembly-canvas-area">
+      <canvas id="cloth-sim-canvas"></canvas>
       <svg id="assembly-svg" xmlns="http://www.w3.org/2000/svg"><defs></defs></svg>
+      <canvas id="sewing-machine-canvas"></canvas>
     </div>
     <div class="assembly-instructions" id="assembly-instructions"></div>
     <div class="assembly-results-overlay" id="results-overlay" style="display:none;"></div>
@@ -70,38 +95,83 @@ export function mount(container) {
 
 export function unmount() {
   _saveAssemblyState();
-  if (_currentGame) { _currentGame.destroy(); _currentGame = null; }
+  _cleanupPhase();
   _container = null;
   _el = null;
   _showResults = false;
+  _stepPhase = 'idle';
 }
 
-export function update(dt) { if (_dirty) _dirty = false; }
+function _cleanupPhase() {
+  _clothSim = null;
+  _clothRenderer = null;
+  _clothCanvas = null;
+  _foldState = null;
+  _alignState = null;
+  _sewingMachine = null;
+  _sewingCanvas = null;
+}
+
+export function update(dt) {
+  if (_stepPhase === 'fold' && _clothSim && _clothRenderer) {
+    _clothSim.update(dt / 1000);
+    _clothRenderer.draw(_clothSim);
+    // Draw align overlay on top of cloth sim if in align mode
+    if (_alignState) _drawAlignOverlay();
+    return true;
+  }
+  if (_stepPhase === 'sew' && _sewingMachine) {
+    _sewingMachine.update(dt / 1000);
+    _sewingMachine.draw();
+    return true;
+  }
+  if (_dirty) _dirty = false;
+  return false;
+}
 
 export function onInput(event) {
-  if (_showResults || !_currentGame) return;
-  const svgPt = _eventToSVG(event);
-  if (!svgPt) return;
+  if (_showResults) return;
 
-  switch (event.type) {
-    case INPUT.DRAG_START:
-      if (_currentGame.startSewing) _currentGame.startSewing(svgPt.x, svgPt.y);
-      if (_currentGame.startDrag) _currentGame.startDrag(svgPt.x, svgPt.y);
-      break;
-    case INPUT.DRAG:
-      if (_currentGame.continueSewing) _currentGame.continueSewing(svgPt.x, svgPt.y);
-      if (_currentGame.drag) _currentGame.drag(svgPt.x, svgPt.y);
-      break;
-    case INPUT.DRAG_END:
-      if (_currentGame.stopSewing) _currentGame.stopSewing();
-      if (_currentGame.endDrag) _currentGame.endDrag();
-      break;
+  if (_stepPhase === 'sew' && _sewingMachine) {
+    _handleMachineInput(event);
+    return;
+  }
+  if (_stepPhase === 'fold') {
+    if (_foldState) _handleFoldInput(event);
+    if (_alignState) _handleAlignInput(event);
+    return;
   }
 }
 
-export function onResize() { _setupSVG(); _dirty = true; }
+export function onResize() {
+  _setupSVG();
+  if (_clothCanvas && _stepPhase === 'fold') {
+    const area = document.getElementById('assembly-canvas-area');
+    if (area) {
+      const rect = area.getBoundingClientRect();
+      _clothCanvas.width = rect.width;
+      _clothCanvas.height = rect.height;
+    }
+  }
+  if (_sewingCanvas && _stepPhase === 'sew') {
+    const area = document.getElementById('assembly-canvas-area');
+    if (area) {
+      const rect = area.getBoundingClientRect();
+      _sewingCanvas.width = rect.width;
+      _sewingCanvas.height = rect.height;
+    }
+  }
+  _dirty = true;
+}
 
-// --- Coordinate conversion ---
+// --- Coordinate helpers ---
+
+function _eventToCanvas(event) {
+  const area = document.getElementById('assembly-canvas-area');
+  if (!area) return { x: event.x, y: event.y };
+  const r = area.getBoundingClientRect();
+  return { x: event.x - r.left, y: event.y - r.top };
+}
 
 function _eventToSVG(event) {
   const svg = document.getElementById('assembly-svg');
@@ -116,75 +186,10 @@ function _eventToSVG(event) {
   return pt.matrixTransform(ctm.inverse());
 }
 
-// --- Layout computation from actual pattern ---
-
-function _computeLayout(pattern) {
-  const layout = {};
-  const VIEW_W = 500;
-  const VIEW_H = 420;
-  const PADDING = 20;
-
-  // Get bounds for each piece
-  const pieces = {};
-  for (const piece of pattern.pieces) {
-    const b = getPieceBounds(piece);
-    pieces[piece.id] = { w: b.width, h: b.height, name: piece.name };
-  }
-
-  // Find the body piece — it's the largest and anchors the layout
-  const body = pieces['apron-body'] || { w: 200, h: 200 };
-  const bib = pieces['apron-bib'] || { w: 80, h: 80 };
-  const waistband = pieces['apron-waistband'] || { w: 200, h: 20 };
-  const strap = pieces['apron-neck-strap'] || { w: 150, h: 15 };
-
-  // Scale everything to fit the viewBox with the body as the dominant piece
-  // Body + bib stacked vertically should fill most of the view
-  const totalH = body.h + bib.h + strap.h + PADDING * 2;
-  const maxW = Math.max(body.w, waistband.w);
-  const scaleH = (VIEW_H - PADDING * 2) / totalH;
-  const scaleW = (VIEW_W - PADDING * 2) / maxW;
-  const scale = Math.min(scaleH, scaleW, 1.0);
-
-  const bW = body.w * scale;
-  const bH = body.h * scale;
-  const bibW = bib.w * scale;
-  const bibH = bib.h * scale;
-  const wbW = waistband.w * scale;
-  const wbH = Math.max(waistband.h * scale, 8);
-  const stW = strap.w * scale;
-  const stH = Math.max(strap.h * scale, 6);
-
-  // Position: bib on top, body below, centered
-  const centerX = VIEW_W / 2;
-  const bodyX = centerX - bW / 2;
-  const bodyY = VIEW_H / 2 - (bH + bibH) / 2 + bibH;
-  const bibX = centerX - bibW / 2;
-  const bibY = bodyY - bibH + 2; // slight overlap for seam
-
-  layout['apron-body'] = { x: bodyX, y: bodyY, w: bW, h: bH, scale };
-  layout['apron-bib'] = { x: bibX, y: bibY, w: bibW, h: bibH, scale };
-  layout['apron-waistband'] = { x: centerX - wbW / 2, y: bodyY - wbH / 2, w: wbW, h: wbH, scale };
-  layout['apron-neck-strap'] = { x: centerX - stW / 2, y: bibY - stH - 4, w: stW, h: stH, scale };
-
-  return layout;
-}
-
-// --- SVG setup ---
-
-function _setupSVG() {
-  const svg = document.getElementById('assembly-svg');
-  const area = document.getElementById('assembly-canvas-area');
-  if (!svg || !area) return;
-  const rect = area.getBoundingClientRect();
-  svg.setAttribute('viewBox', '0 0 500 420');
-  svg.setAttribute('width', rect.width);
-  svg.setAttribute('height', rect.height);
-}
-
 // --- Step management ---
 
 function _startCurrentStep() {
-  if (_currentGame) { _currentGame.destroy(); _currentGame = null; }
+  _cleanupPhase();
 
   if (isAssemblyComplete(_assemblyState)) {
     _showCompletionResults();
@@ -194,39 +199,606 @@ function _startCurrentStep() {
   const step = getCurrentStep(_assemblyState);
   if (!step) return;
 
+  // Hide all canvases, show SVG for background
+  _hideAllCanvases();
+
   const svg = document.getElementById('assembly-svg');
-  if (!svg) return;
+  if (svg) {
+    svg.style.display = 'block';
+    const existing = svg.querySelector('#mini-game-layer');
+    if (existing) existing.remove();
+    _renderAssemblyPieces(svg, step);
+  }
 
-  const existing = svg.querySelector('#mini-game-layer');
-  if (existing) existing.remove();
-
-  // Render the apron pieces as background
-  _renderAssemblyPieces(svg, step);
-
-  // Create the mini-game based on step type
+  // Start fold phase based on step type
   if (step.type === 'straight-seam') {
-    const seamLine = _getSeamLine(step);
-    _currentGame = new StraightSeamGame(svg, seamLine, {
-      onComplete: (score) => _onStepComplete(score),
-    });
+    _startFoldPhase(step);
   } else if (step.type === 'align-and-sew') {
-    const { targetZone, pieceSize } = _getAlignData(step);
-    _currentGame = new AlignAndSewGame(svg, targetZone, pieceSize, {
-      onComplete: (score) => _onStepComplete(score),
-    });
+    _startAlignPhase(step);
   }
 
   _renderStepUI();
 }
 
+function _hideAllCanvases() {
+  const cloth = document.getElementById('cloth-sim-canvas');
+  const sew = document.getElementById('sewing-machine-canvas');
+  const svg = document.getElementById('assembly-svg');
+  if (cloth) cloth.style.display = 'none';
+  if (sew) sew.style.display = 'none';
+  if (svg) svg.style.display = 'block';
+}
+
+// =============================================
+// FOLD PHASE — Hem steps (straight-seam)
+// =============================================
+
+function _startFoldPhase(step) {
+  const area = document.getElementById('assembly-canvas-area');
+  _clothCanvas = document.getElementById('cloth-sim-canvas');
+  if (!area || !_clothCanvas) return;
+
+  const rect = area.getBoundingClientRect();
+  _clothCanvas.width = rect.width;
+  _clothCanvas.height = rect.height;
+  _clothCanvas.style.display = 'block';
+  // Hide SVG during fold phase — cloth canvas takes over
+  const svg = document.getElementById('assembly-svg');
+  if (svg) svg.style.display = 'none';
+
+  // Get piece dimensions
+  const piece = _pattern.pieces.find(p => p.id === step.piece);
+  if (!piece) return;
+  const bounds = getPieceBounds(piece);
+
+  // Scale piece to fit canvas with padding
+  const padding = 40;
+  const scaleX = (rect.width - padding * 2) / bounds.width;
+  const scaleY = (rect.height - padding * 2) / bounds.height;
+  const scale = Math.min(scaleX, scaleY, 3.0);
+  const clothW = bounds.width * scale;
+  const clothH = bounds.height * scale;
+  const originX = (rect.width - clothW) / 2;
+  const originY = (rect.height - clothH) / 2;
+
+  // Create cloth sim — use chiffon preset for low gravity and high responsiveness
+  _clothSim = new ClothSim({
+    width: clothW,
+    height: clothH,
+    spacing: 10,
+    material: 'chiffon',
+    originX,
+    originY,
+  });
+
+  // Pin the edge opposite to the fold edge (the fabric lies flat, fold edge is free)
+  const edge = step.edge || 'bottom';
+  _pinOppositeEdge(edge);
+
+  // Hem is a small margin — 3 rows of particles (~30px at spacing 10)
+  const hemRows = 3;
+  _pinMiddleFlat(edge, hemRows);
+
+  _clothRenderer = new ClothRenderer(_clothCanvas, {
+    fabricColor: COLORS.ACCENT_DIM,
+    drawCreases: true,
+    drawSelvedge: false,
+  });
+
+  _foldState = {
+    edge,
+    hemRows,
+    dragging: false,
+    folded: false,
+    scale,
+    originX,
+    originY,
+    clothW,
+    clothH,
+  };
+
+  _stepPhase = 'fold';
+}
+
+function _pinOppositeEdge(edge) {
+  switch (edge) {
+    case 'bottom': _clothSim.pinTop(); break;
+    case 'top':
+      for (let c = 0; c < _clothSim.cols; c++) _clothSim.pin(c, _clothSim.rows - 1);
+      break;
+    case 'left':
+      for (let r = 0; r < _clothSim.rows; r++) _clothSim.pin(_clothSim.cols - 1, r);
+      break;
+    case 'right':
+      for (let r = 0; r < _clothSim.rows; r++) _clothSim.pin(0, r);
+      break;
+  }
+}
+
+function _pinMiddleFlat(edge, hemRows) {
+  // Pin everything except the fold margin to keep the fabric flat
+  switch (edge) {
+    case 'bottom':
+      for (let r = 0; r < _clothSim.rows - hemRows; r++)
+        for (let c = 0; c < _clothSim.cols; c++) _clothSim.pin(c, r);
+      break;
+    case 'top':
+      for (let r = hemRows; r < _clothSim.rows; r++)
+        for (let c = 0; c < _clothSim.cols; c++) _clothSim.pin(c, r);
+      break;
+    case 'left':
+      for (let r = 0; r < _clothSim.rows; r++)
+        for (let c = hemRows; c < _clothSim.cols; c++) _clothSim.pin(c, r);
+      break;
+    case 'right':
+      for (let r = 0; r < _clothSim.rows; r++)
+        for (let c = 0; c < _clothSim.cols - hemRows; c++) _clothSim.pin(c, r);
+      break;
+  }
+}
+
+function _handleFoldInput(event) {
+  const pos = _eventToCanvas(event);
+  if (!_clothSim || !_foldState || _foldState.folded) return;
+
+  switch (event.type) {
+    case INPUT.DRAG_START: {
+      // Accept grab anywhere on the canvas — forgiving for touch
+      _foldState.dragging = true;
+      break;
+    }
+    case INPUT.DRAG: {
+      if (!_foldState.dragging) return;
+      // Directly move all hem-edge particles to follow the cursor
+      _moveFoldEdge(pos);
+      break;
+    }
+    case INPUT.DRAG_END: {
+      if (!_foldState.dragging) return;
+      _foldState.dragging = false;
+      if (_checkFoldComplete()) {
+        _foldState.folded = true;
+        showToast('Fold complete! Now sew the hem.', 'success');
+        setTimeout(() => _transitionToSew(), 600);
+      } else {
+        showToast('Drag the edge further to complete the fold', 'warning');
+      }
+      break;
+    }
+  }
+}
+
+function _moveFoldEdge(pos) {
+  const edge = _foldState.edge;
+  const sim = _clothSim;
+
+  // Move unpinned particles toward the cursor position
+  switch (edge) {
+    case 'bottom':
+      for (let r = sim.rows - _foldState.hemRows; r < sim.rows; r++) {
+        for (let c = 0; c < sim.cols; c++) {
+          const p = sim.getParticle(c, r);
+          if (!p || p.pinned) continue;
+          // Map the particle's X stays the same, Y tracks the cursor
+          const frac = (r - (sim.rows - _foldState.hemRows)) / _foldState.hemRows;
+          const targetY = pos.y + frac * 8; // small spread
+          sim.moveParticle(p, p.x, targetY);
+        }
+      }
+      break;
+    case 'top':
+      for (let r = 0; r < _foldState.hemRows; r++) {
+        for (let c = 0; c < sim.cols; c++) {
+          const p = sim.getParticle(c, r);
+          if (!p || p.pinned) continue;
+          const frac = (_foldState.hemRows - 1 - r) / _foldState.hemRows;
+          const targetY = pos.y - frac * 8;
+          sim.moveParticle(p, p.x, targetY);
+        }
+      }
+      break;
+    case 'left':
+      for (let r = 0; r < sim.rows; r++) {
+        for (let c = 0; c < _foldState.hemRows; c++) {
+          const p = sim.getParticle(c, r);
+          if (!p || p.pinned) continue;
+          const frac = (_foldState.hemRows - 1 - c) / _foldState.hemRows;
+          const targetX = pos.x - frac * 8;
+          sim.moveParticle(p, targetX, p.y);
+        }
+      }
+      break;
+    case 'right':
+      for (let r = 0; r < sim.rows; r++) {
+        for (let c = sim.cols - _foldState.hemRows; c < sim.cols; c++) {
+          const p = sim.getParticle(c, r);
+          if (!p || p.pinned) continue;
+          const frac = (c - (sim.cols - _foldState.hemRows)) / _foldState.hemRows;
+          const targetX = pos.x + frac * 8;
+          sim.moveParticle(p, targetX, p.y);
+        }
+      }
+      break;
+  }
+}
+
+function _checkFoldComplete() {
+  const sim = _clothSim;
+  const fs = _foldState;
+  const edge = fs.edge;
+
+  // Check if the outermost fold-edge particles have crossed the fold hinge
+  // The hinge is the first pinned row/col adjacent to the hem margin
+  switch (edge) {
+    case 'bottom': {
+      const hingeRow = sim.rows - fs.hemRows - 1;
+      const hingeP = sim.getParticle(0, hingeRow);
+      if (!hingeP) return false;
+      const hingeY = hingeP.y;
+      // Check that most edge particles are above the hinge
+      let crossed = 0;
+      for (let c = 0; c < sim.cols; c++) {
+        const p = sim.getParticle(c, sim.rows - 1);
+        if (p && p.y < hingeY + 5) crossed++;
+      }
+      return crossed >= sim.cols * 0.6;
+    }
+    case 'top': {
+      const hingeP = sim.getParticle(0, fs.hemRows);
+      if (!hingeP) return false;
+      const hingeY = hingeP.y;
+      let crossed = 0;
+      for (let c = 0; c < sim.cols; c++) {
+        const p = sim.getParticle(c, 0);
+        if (p && p.y > hingeY - 5) crossed++;
+      }
+      return crossed >= sim.cols * 0.6;
+    }
+    case 'left': {
+      const hingeP = sim.getParticle(fs.hemRows, 0);
+      if (!hingeP) return false;
+      const hingeX = hingeP.x;
+      let crossed = 0;
+      for (let r = 0; r < sim.rows; r++) {
+        const p = sim.getParticle(0, r);
+        if (p && p.x > hingeX - 5) crossed++;
+      }
+      return crossed >= sim.rows * 0.6;
+    }
+    case 'right': {
+      const hingeP = sim.getParticle(sim.cols - fs.hemRows - 1, 0);
+      if (!hingeP) return false;
+      const hingeX = hingeP.x;
+      let crossed = 0;
+      for (let r = 0; r < sim.rows; r++) {
+        const p = sim.getParticle(sim.cols - 1, r);
+        if (p && p.x < hingeX + 5) crossed++;
+      }
+      return crossed >= sim.rows * 0.6;
+    }
+    default:
+      return false;
+  }
+}
+
+// =============================================
+// ALIGN PHASE — Attach steps (align-and-sew)
+// =============================================
+
+function _startAlignPhase(step) {
+  const area = document.getElementById('assembly-canvas-area');
+  _clothCanvas = document.getElementById('cloth-sim-canvas');
+  if (!area || !_clothCanvas) return;
+
+  const rect = area.getBoundingClientRect();
+  _clothCanvas.width = rect.width;
+  _clothCanvas.height = rect.height;
+  _clothCanvas.style.display = 'block';
+
+  const svg = document.getElementById('assembly-svg');
+  if (svg) svg.style.display = 'none';
+
+  // Create cloth sim for the main piece
+  const mainPiece = _pattern.pieces.find(p => p.id === step.piece);
+  const attachPiece = _pattern.pieces.find(p => p.id === step.attachPiece);
+  if (!mainPiece) return;
+
+  const mainBounds = getPieceBounds(mainPiece);
+  const attachBounds = attachPiece ? getPieceBounds(attachPiece) : { width: 100, height: 30 };
+
+  // Scale to fit canvas
+  const padding = 40;
+  const totalH = mainBounds.height + attachBounds.height + 20;
+  const scaleX = (rect.width - padding * 2) / Math.max(mainBounds.width, attachBounds.width);
+  const scaleY = (rect.height - padding * 2) / totalH;
+  const scale = Math.min(scaleX, scaleY, 3.0);
+
+  const clothW = mainBounds.width * scale;
+  const clothH = mainBounds.height * scale;
+  const originX = (rect.width - clothW) / 2;
+  const originY = rect.height / 2 - clothH / 2 + attachBounds.height * scale / 2;
+
+  _clothSim = new ClothSim({
+    width: clothW,
+    height: clothH,
+    spacing: 8,
+    material: 'cotton',
+    originX,
+    originY,
+  });
+  // Pin entire main piece flat (it's the stationary target)
+  for (let r = 0; r < _clothSim.rows; r++)
+    for (let c = 0; c < _clothSim.cols; c++)
+      _clothSim.pin(c, r);
+
+  _clothRenderer = new ClothRenderer(_clothCanvas, {
+    fabricColor: COLORS.ACCENT_DIM,
+    drawCreases: true,
+    drawSelvedge: false,
+  });
+
+  // Set up the draggable attach piece
+  const attachW = attachBounds.width * scale;
+  const attachH = attachBounds.height * scale;
+  const { targetZone } = _getAlignDataScaled(step, scale, originX, originY, mainBounds, attachBounds);
+
+  _alignState = {
+    pieceId: step.attachPiece,
+    x: rect.width - attachW - 30,
+    y: 30,
+    w: attachW,
+    h: attachH,
+    targetX: targetZone.x,
+    targetY: targetZone.y,
+    snapRadius: 20,
+    aligned: false,
+    dragging: false,
+    outlinePath: attachPiece ? getOutlinePath(attachPiece) : null,
+    pieceBounds: attachBounds,
+    scale,
+  };
+
+  _stepPhase = 'fold';
+}
+
+function _getAlignDataScaled(step, scale, originX, originY, mainBounds, attachBounds) {
+  const mw = mainBounds.width * scale;
+  const mh = mainBounds.height * scale;
+  const aw = attachBounds.width * scale;
+  const ah = attachBounds.height * scale;
+
+  switch (step.attachEdge) {
+    case 'top-center':
+      return { targetZone: { x: originX + (mw - aw) / 2, y: originY - ah + 4 } };
+    case 'waist':
+      return { targetZone: { x: originX + (mw - aw) / 2, y: originY - ah / 2 } };
+    case 'top-corners':
+      return { targetZone: { x: originX + (mw - aw) / 2, y: originY - ah - 4 } };
+    default:
+      return { targetZone: { x: originX, y: originY } };
+  }
+}
+
+function _handleAlignInput(event) {
+  const pos = _eventToCanvas(event);
+  if (!_alignState || _alignState.aligned) return;
+
+  switch (event.type) {
+    case INPUT.DRAG_START: {
+      const a = _alignState;
+      if (pos.x >= a.x && pos.x <= a.x + a.w && pos.y >= a.y && pos.y <= a.y + a.h) {
+        a.dragging = true;
+        a.offsetX = pos.x - a.x;
+        a.offsetY = pos.y - a.y;
+      }
+      break;
+    }
+    case INPUT.DRAG: {
+      if (!_alignState.dragging) return;
+      _alignState.x = pos.x - _alignState.offsetX;
+      _alignState.y = pos.y - _alignState.offsetY;
+      break;
+    }
+    case INPUT.DRAG_END: {
+      if (!_alignState.dragging) return;
+      _alignState.dragging = false;
+      const dx = Math.abs(_alignState.x - _alignState.targetX);
+      const dy = Math.abs(_alignState.y - _alignState.targetY);
+      if (dx <= _alignState.snapRadius && dy <= _alignState.snapRadius) {
+        _alignState.x = _alignState.targetX;
+        _alignState.y = _alignState.targetY;
+        _alignState.aligned = true;
+        showToast('Aligned! Now sew the seam.', 'success');
+        setTimeout(() => _transitionToSew(), 600);
+      }
+      break;
+    }
+  }
+}
+
+// Override cloth renderer draw to also show the align piece
+const _originalClothRendererDraw = ClothRenderer.prototype.draw;
+
+export function _drawAlignOverlay() {
+  if (!_alignState || !_clothCanvas) return;
+  const ctx = _clothCanvas.getContext('2d');
+  const a = _alignState;
+
+  ctx.save();
+  if (a.outlinePath && a.pieceBounds) {
+    // Draw the attach piece using its shape
+    const b = a.pieceBounds;
+    const sx = a.w / b.width;
+    const sy = a.h / b.height;
+    ctx.translate(a.x - b.x * sx, a.y - b.y * sy);
+    ctx.scale(sx, sy);
+    const path2d = new Path2D(a.outlinePath);
+    ctx.fillStyle = a.aligned ? 'rgba(92, 184, 92, 0.3)' : 'rgba(196, 168, 130, 0.4)';
+    ctx.fill(path2d);
+    ctx.strokeStyle = a.aligned ? COLORS.SUCCESS : COLORS.ACCENT;
+    ctx.lineWidth = 2 / sx;
+    ctx.stroke(path2d);
+  } else {
+    // Rectangle fallback
+    ctx.fillStyle = a.aligned ? 'rgba(92, 184, 92, 0.3)' : 'rgba(196, 168, 130, 0.4)';
+    ctx.fillRect(a.x, a.y, a.w, a.h);
+    ctx.strokeStyle = a.aligned ? COLORS.SUCCESS : COLORS.ACCENT;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(a.x, a.y, a.w, a.h);
+  }
+  ctx.restore();
+
+  // Draw target zone indicator if not aligned
+  if (!a.aligned) {
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = COLORS.SUCCESS;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(a.targetX, a.targetY, a.w, a.h);
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(92, 184, 92, 0.15)';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('DROP HERE', a.targetX + a.w / 2, a.targetY + a.h / 2 + 4);
+    ctx.restore();
+  }
+}
+
+// =============================================
+// TRANSITION: fold → sew
+// =============================================
+
+function _transitionToSew() {
+  const step = getCurrentStep(_assemblyState);
+  if (!step) return;
+
+  // Hide cloth canvas, show sewing machine
+  if (_clothCanvas) _clothCanvas.style.display = 'none';
+  _clothSim = null;
+  _clothRenderer = null;
+  _foldState = null;
+  _alignState = null;
+
+  const area = document.getElementById('assembly-canvas-area');
+  _sewingCanvas = document.getElementById('sewing-machine-canvas');
+  if (!area || !_sewingCanvas) return;
+
+  const rect = area.getBoundingClientRect();
+  _sewingCanvas.width = rect.width;
+  _sewingCanvas.height = rect.height;
+  _sewingCanvas.style.display = 'block';
+
+  // Get seam length
+  const seamLine = _getSeamLine(step);
+  const dx = seamLine.x2 - seamLine.x1;
+  const dy = seamLine.y2 - seamLine.y1;
+  const lengthPx = Math.sqrt(dx * dx + dy * dy);
+  const seamDef = createStraightSeam(lengthPx, DRAFTING.DEFAULT_SEAM_ALLOW, step.name);
+
+  _sewingMachine = new SewingMachine(_sewingCanvas, {
+    width: rect.width,
+    height: rect.height,
+    onEvent: (evt) => {
+      if (evt.type === 'complete') {
+        _sewingCanvas.style.display = 'none';
+        _sewingMachine = null;
+        _stepPhase = 'idle';
+        _onStepComplete(evt.score);
+      }
+    },
+  });
+  _sewingMachine.loadSeam(seamDef);
+  _stepPhase = 'sew';
+
+  // Update instruction text
+  const instr = document.getElementById('assembly-instructions');
+  if (instr) {
+    const stepUI = getCurrentStep(_assemblyState);
+    instr.innerHTML = `
+      <div class="assembly-step-name">${stepUI.name} — Sew the Seam</div>
+      <div class="assembly-step-text"><strong>Touch and hold</strong> to start sewing. <strong>Drag down</strong> to go faster. <strong>Drag left/right</strong> to keep fabric aligned with the red 5/8" guide line.</div>
+      <div class="assembly-step-detail">Keep the edge steady along the seam allowance guide. A green stitch trail means you're on track.</div>
+    `;
+  }
+}
+
+// =============================================
+// SEWING MACHINE INPUT
+// =============================================
+
+function _handleMachineInput(event) {
+  if (!_sewingCanvas || !_sewingMachine) return;
+
+  // Convert to canvas-local coordinates
+  const canvasRect = _sewingCanvas.getBoundingClientRect();
+  const localX = event.x - canvasRect.left;
+  const localY = event.y - canvasRect.top;
+
+  switch (event.type) {
+    case INPUT.DRAG_START:
+      _sewingMachine.lowerPresserFoot();
+      _sewingMachine.pressPedal(0.5);
+      break;
+    case INPUT.DRAG: {
+      const centerX = _sewingCanvas.width / 2;
+      const offsetX = (localX - centerX) * 0.3;
+      _sewingMachine.guideFabric(offsetX);
+      if (event.startY !== undefined) {
+        const dy = localY - (event.startY - canvasRect.top);
+        const speed = clamp(0.3 + dy * 0.004, 0.1, 1.0);
+        _sewingMachine.pressPedal(speed);
+      }
+      break;
+    }
+    case INPUT.DRAG_END:
+      _sewingMachine.releasePedal();
+      break;
+  }
+}
+
+// =============================================
+// STEP COMPLETION
+// =============================================
+
 function _onStepComplete(score) {
+  const pct = Math.round(score * 100);
+  const instr = document.getElementById('assembly-instructions');
+
+  if (score < 0.5) {
+    // Low score — offer retry before recording
+    showToast(`Needs practice: ${pct}%. Try again!`, 'error');
+    if (instr) {
+      instr.innerHTML = `
+        <div class="assembly-step-name">Score: ${pct}%</div>
+        <div class="assembly-step-text">Your seam needs more practice. Keep the fabric aligned with the seam allowance guide and maintain steady speed.</div>
+      `;
+      const retryBtn = document.createElement('button');
+      retryBtn.className = 'btn btn-primary';
+      retryBtn.style.cssText = 'margin-top:8px; margin-right:8px;';
+      retryBtn.textContent = 'Retry';
+      retryBtn.addEventListener('click', () => _transitionToSew());
+      instr.appendChild(retryBtn);
+
+      const acceptBtn = document.createElement('button');
+      acceptBtn.className = 'btn';
+      acceptBtn.style.cssText = 'margin-top:8px; opacity:0.7;';
+      acceptBtn.textContent = `Accept ${pct}%`;
+      acceptBtn.addEventListener('click', () => _acceptScore(score));
+      instr.appendChild(acceptBtn);
+    }
+    return;
+  }
+
+  _acceptScore(score);
+}
+
+function _acceptScore(score) {
   _assemblyState = completeStep(_assemblyState, score);
   _saveAssemblyState();
 
   const pct = Math.round(score * 100);
   if (score >= 0.7) showToast(`Nice work! ${pct}%`, 'success');
-  else if (score >= 0.5) showToast(`Passable: ${pct}%`, 'warning');
-  else showToast(`Needs practice: ${pct}%`, 'error');
+  else showToast(`Passable: ${pct}%`, 'warning');
 
   _renderStepUI();
 
@@ -253,78 +825,78 @@ function _saveAssemblyState() {
   });
 }
 
-// --- Seam line calculation using actual layout ---
+// --- Layout ---
+
+function _computeLayout(pattern) {
+  const layout = {};
+  const VIEW_W = 500;
+  const VIEW_H = 420;
+  const PADDING = 20;
+
+  const pieces = {};
+  for (const piece of pattern.pieces) {
+    const b = getPieceBounds(piece);
+    pieces[piece.id] = { w: b.width, h: b.height, name: piece.name };
+  }
+
+  const body = pieces['apron-body'] || { w: 200, h: 200 };
+  const bib = pieces['apron-bib'] || { w: 80, h: 80 };
+  const waistband = pieces['apron-waistband'] || { w: 200, h: 20 };
+  const strap = pieces['apron-neck-strap'] || { w: 150, h: 15 };
+
+  const totalH = body.h + bib.h + strap.h + PADDING * 2;
+  const maxW = Math.max(body.w, waistband.w);
+  const scaleH = (VIEW_H - PADDING * 2) / totalH;
+  const scaleW = (VIEW_W - PADDING * 2) / maxW;
+  const scale = Math.min(scaleH, scaleW, 1.0);
+
+  const bW = body.w * scale;
+  const bH = body.h * scale;
+  const bibW = bib.w * scale;
+  const bibH = bib.h * scale;
+  const wbW = waistband.w * scale;
+  const wbH = Math.max(waistband.h * scale, 8);
+  const stW = strap.w * scale;
+  const stH = Math.max(strap.h * scale, 6);
+
+  const centerX = VIEW_W / 2;
+  const bodyX = centerX - bW / 2;
+  const bodyY = VIEW_H / 2 - (bH + bibH) / 2 + bibH;
+  const bibX = centerX - bibW / 2;
+  const bibY = bodyY - bibH + 2;
+
+  layout['apron-body'] = { x: bodyX, y: bodyY, w: bW, h: bH, scale };
+  layout['apron-bib'] = { x: bibX, y: bibY, w: bibW, h: bibH, scale };
+  layout['apron-waistband'] = { x: centerX - wbW / 2, y: bodyY - wbH / 2, w: wbW, h: wbH, scale };
+  layout['apron-neck-strap'] = { x: centerX - stW / 2, y: bibY - stH - 4, w: stW, h: stH, scale };
+
+  return layout;
+}
+
+function _setupSVG() {
+  const svg = document.getElementById('assembly-svg');
+  const area = document.getElementById('assembly-canvas-area');
+  if (!svg || !area) return;
+  const rect = area.getBoundingClientRect();
+  svg.setAttribute('viewBox', '0 0 500 420');
+  svg.setAttribute('width', rect.width);
+  svg.setAttribute('height', rect.height);
+}
 
 function _getSeamLine(step) {
   const L = _layout[step.piece];
   if (!L) return { x1: 100, y1: 200, x2: 400, y2: 200 };
-
-  const inset = 8; // visual inset for hem fold line
-
+  const inset = 8;
   switch (step.edge) {
-    case 'bottom':
-      return { x1: L.x + inset, y1: L.y + L.h - inset, x2: L.x + L.w - inset, y2: L.y + L.h - inset };
-    case 'top':
-      return { x1: L.x + inset, y1: L.y + inset, x2: L.x + L.w - inset, y2: L.y + inset };
-    case 'left':
-      return { x1: L.x + inset, y1: L.y + inset, x2: L.x + inset, y2: L.y + L.h - inset };
-    case 'right':
-      return { x1: L.x + L.w - inset, y1: L.y + inset, x2: L.x + L.w - inset, y2: L.y + L.h - inset };
-    default:
-      return { x1: L.x, y1: L.y + L.h / 2, x2: L.x + L.w, y2: L.y + L.h / 2 };
+    case 'bottom': return { x1: L.x + inset, y1: L.y + L.h - inset, x2: L.x + L.w - inset, y2: L.y + L.h - inset };
+    case 'top':    return { x1: L.x + inset, y1: L.y + inset, x2: L.x + L.w - inset, y2: L.y + inset };
+    case 'left':   return { x1: L.x + inset, y1: L.y + inset, x2: L.x + inset, y2: L.y + L.h - inset };
+    case 'right':  return { x1: L.x + L.w - inset, y1: L.y + inset, x2: L.x + L.w - inset, y2: L.y + L.h - inset };
+    default:       return { x1: L.x, y1: L.y + L.h / 2, x2: L.x + L.w, y2: L.y + L.h / 2 };
   }
 }
 
-function _getAlignData(step) {
-  const bodyL = _layout[step.piece];
-  const attachL = _layout[step.attachPiece];
-  if (!bodyL || !attachL) {
-    return { targetZone: { x: 150, y: 150, width: 200, height: 30 }, pieceSize: { width: 200, height: 30 } };
-  }
-
-  switch (step.attachEdge) {
-    case 'top-center':
-      // Bib attaches to top center of body
-      return {
-        targetZone: {
-          x: bodyL.x + (bodyL.w - attachL.w) / 2,
-          y: bodyL.y - attachL.h + 2,
-          width: attachL.w,
-          height: attachL.h,
-        },
-        pieceSize: { width: attachL.w, height: attachL.h },
-      };
-    case 'waist':
-      // Waistband sits across the body top edge
-      return {
-        targetZone: {
-          x: bodyL.x + (bodyL.w - attachL.w) / 2,
-          y: bodyL.y - attachL.h / 2,
-          width: attachL.w,
-          height: attachL.h,
-        },
-        pieceSize: { width: attachL.w, height: attachL.h },
-      };
-    case 'top-corners':
-      // Strap goes across the top of the bib
-      return {
-        targetZone: {
-          x: bodyL.x + (bodyL.w - attachL.w) / 2,
-          y: bodyL.y - attachL.h - 4,
-          width: attachL.w,
-          height: attachL.h,
-        },
-        pieceSize: { width: attachL.w, height: attachL.h },
-      };
-    default:
-      return {
-        targetZone: { x: bodyL.x, y: bodyL.y, width: attachL.w, height: attachL.h },
-        pieceSize: { width: attachL.w, height: attachL.h },
-      };
-  }
-}
-
-// --- Render pattern pieces as background ---
+// --- Render assembly pieces as SVG background ---
 
 function _renderAssemblyPieces(svg, step) {
   let bg = svg.querySelector('#assembly-bg');
@@ -333,7 +905,6 @@ function _renderAssemblyPieces(svg, step) {
   bg = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   bg.setAttribute('id', 'assembly-bg');
 
-  // Draw each piece using its actual outline, scaled and positioned
   for (const piece of _pattern.pieces) {
     const L = _layout[piece.id];
     if (!L) continue;
@@ -343,12 +914,10 @@ function _renderAssemblyPieces(svg, step) {
     const isCompleted = _isStepDoneForPiece(piece.id);
 
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    // Transform: scale the piece outline to fit the layout position
     const sx = L.w / bounds.width;
     const sy = L.h / bounds.height;
     g.setAttribute('transform', `translate(${L.x - bounds.x * sx}, ${L.y - bounds.y * sy}) scale(${sx}, ${sy})`);
 
-    // Piece fill
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', getOutlinePath(piece));
     path.setAttribute('fill', isActive ? 'rgba(196, 168, 130, 0.18)' : 'rgba(196, 168, 130, 0.10)');
@@ -356,7 +925,6 @@ function _renderAssemblyPieces(svg, step) {
     path.setAttribute('stroke-width', String(1.5 / sx));
     g.appendChild(path);
 
-    // Completed seams indicator
     if (isCompleted) {
       const check = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       check.setAttribute('d', getOutlinePath(piece));
@@ -369,7 +937,6 @@ function _renderAssemblyPieces(svg, step) {
 
     bg.appendChild(g);
 
-    // Label (outside the scaled group)
     const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     _setAttrs(label, {
       x: L.x + L.w / 2,
@@ -385,96 +952,7 @@ function _renderAssemblyPieces(svg, step) {
     bg.appendChild(label);
   }
 
-  // Draw fold indicators for hem steps
-  if (step.type === 'straight-seam' && step.edge) {
-    _renderFoldIndicator(bg, step);
-  }
-
-  const gameLayer = svg.querySelector('#mini-game-layer') || svg.lastChild;
-  svg.insertBefore(bg, gameLayer);
-}
-
-function _renderFoldIndicator(group, step) {
-  const L = _layout[step.piece];
-  if (!L) return;
-
-  const foldW = 8;
-
-  // Draw the fold zone — a lighter strip along the edge being hemmed
-  let fx, fy, fw, fh;
-  switch (step.edge) {
-    case 'bottom':
-      fx = L.x; fy = L.y + L.h - foldW; fw = L.w; fh = foldW;
-      break;
-    case 'top':
-      fx = L.x; fy = L.y; fw = L.w; fh = foldW;
-      break;
-    case 'left':
-      fx = L.x; fy = L.y; fw = foldW; fh = L.h;
-      break;
-    case 'right':
-      fx = L.x + L.w - foldW; fy = L.y; fw = foldW; fh = L.h;
-      break;
-    default: return;
-  }
-
-  // Fold zone background
-  const foldRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  _setAttrs(foldRect, {
-    x: fx, y: fy, width: fw, height: fh,
-    fill: 'rgba(196, 168, 130, 0.12)',
-    stroke: 'rgba(196, 168, 130, 0.3)',
-    'stroke-width': 0.5,
-    'stroke-dasharray': '3 2',
-  });
-  group.appendChild(foldRect);
-
-  // Fold arrow symbols showing the fold direction
-  const arrowSize = 5;
-  const arrowCount = step.edge === 'left' || step.edge === 'right' ? 3 : 4;
-
-  for (let i = 0; i < arrowCount; i++) {
-    let ax, ay, dir;
-    const t = (i + 0.5) / arrowCount;
-
-    switch (step.edge) {
-      case 'bottom':
-        ax = fx + t * fw; ay = fy + fh / 2; dir = '\u2191'; break; // ↑
-      case 'top':
-        ax = fx + t * fw; ay = fy + fh / 2; dir = '\u2193'; break; // ↓
-      case 'left':
-        ax = fx + fw / 2; ay = fy + t * fh; dir = '\u2192'; break; // →
-      case 'right':
-        ax = fx + fw / 2; ay = fy + t * fh; dir = '\u2190'; break; // ←
-    }
-
-    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    _setAttrs(arrow, {
-      x: ax, y: ay + 3,
-      'text-anchor': 'middle',
-      fill: 'rgba(196, 168, 130, 0.5)',
-      'font-size': 8,
-      'pointer-events': 'none',
-    });
-    arrow.textContent = dir;
-    group.appendChild(arrow);
-  }
-
-  // "FOLD" label
-  const labelX = step.edge === 'left' || step.edge === 'right' ? fx + fw / 2 : fx + fw / 2;
-  const labelY = step.edge === 'bottom' ? fy - 4 : step.edge === 'top' ? fy + fh + 10 : fy + fh / 2;
-  const foldLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  _setAttrs(foldLabel, {
-    x: labelX, y: labelY,
-    'text-anchor': 'middle',
-    fill: 'rgba(196, 168, 130, 0.4)',
-    'font-size': 7,
-    'font-family': 'monospace',
-    'letter-spacing': '1px',
-    'pointer-events': 'none',
-  });
-  foldLabel.textContent = 'FOLD';
-  group.appendChild(foldLabel);
+  svg.appendChild(bg);
 }
 
 function _isStepDoneForPiece(pieceId) {
@@ -526,6 +1004,7 @@ function _renderStepUI() {
 
 function _showCompletionResults() {
   _showResults = true;
+  _stepPhase = 'idle';
   const state = getState();
   const ap = state.activeProject;
   if (!ap) return;
@@ -598,8 +1077,6 @@ function _finishProject(scores, grade) {
   });
   navigateTo(SCREEN.QUEUE);
 }
-
-// --- Placeholder ---
 
 function _renderPlaceholder(container) {
   const el = document.createElement('div');

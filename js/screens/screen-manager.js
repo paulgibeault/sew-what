@@ -77,11 +77,12 @@ export class ScreenManager {
     return this._activeScreen;
   }
 
-  /** Forward an update tick to the active screen */
+  /** Forward an update tick to the active screen. Returns true if screen needs continuous frames. */
   update(dt) {
     if (this._activeScreen && this._activeScreen.update) {
-      this._activeScreen.update(dt);
+      return this._activeScreen.update(dt);
     }
+    return false;
   }
 
   /** Forward an input event to the active screen */

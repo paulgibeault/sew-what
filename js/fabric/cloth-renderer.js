@@ -77,6 +77,9 @@ export class ClothRenderer {
     const cols = sim.cols;
     const rows = sim.rows;
 
+    // Clear previous frame
+    ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
+
     // Compute per-particle pseudo-normals for shading
     const normals = this._computeNormals(sim);
 

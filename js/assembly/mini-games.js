@@ -238,6 +238,9 @@ export class AlignAndSewGame {
     this._svg = svgEl;
     this._targetZone = targetZone; // { x, y, width, height }
     this._pieceSize = pieceSize;   // { width, height }
+    // Actual pattern shape for rendering (SVG path d attribute)
+    this._outlinePath = options.outlinePath || null;
+    this._pieceBounds = options.pieceBounds || null; // { x, y, width, height }
     // Start the piece offset from target but always visible within the viewBox
     this._piecePos = {
       x: Math.max(10, Math.min(350, targetZone.x + targetZone.width + 30)),
@@ -356,15 +359,33 @@ export class AlignAndSewGame {
 
     const tz = this._targetZone;
 
-    // Target zone (dashed outline)
-    const target = _svgEl('rect', {
-      x: tz.x, y: tz.y, width: tz.width, height: tz.height,
-      fill: 'rgba(92, 184, 92, 0.1)',
-      stroke: COLORS.SUCCESS,
-      'stroke-width': 1,
-      'stroke-dasharray': '6 3',
-    });
-    this._gameLayer.appendChild(target);
+    // Target zone — use piece shape if available
+    if (this._outlinePath && this._pieceBounds) {
+      const b = this._pieceBounds;
+      const sx = tz.width / b.width;
+      const sy = tz.height / b.height;
+      const g = _svgEl('g', {
+        transform: `translate(${tz.x - b.x * sx}, ${tz.y - b.y * sy}) scale(${sx}, ${sy})`,
+      });
+      const target = _svgEl('path', {
+        d: this._outlinePath,
+        fill: 'rgba(92, 184, 92, 0.1)',
+        stroke: COLORS.SUCCESS,
+        'stroke-width': String(1 / sx),
+        'stroke-dasharray': `${6 / sx} ${3 / sx}`,
+      });
+      g.appendChild(target);
+      this._gameLayer.appendChild(g);
+    } else {
+      const target = _svgEl('rect', {
+        x: tz.x, y: tz.y, width: tz.width, height: tz.height,
+        fill: 'rgba(92, 184, 92, 0.1)',
+        stroke: COLORS.SUCCESS,
+        'stroke-width': 1,
+        'stroke-dasharray': '6 3',
+      });
+      this._gameLayer.appendChild(target);
+    }
 
     // Target label
     const label = _svgEl('text', {
@@ -379,29 +400,64 @@ export class AlignAndSewGame {
     label.textContent = 'DROP HERE';
     if (!this._aligned) this._gameLayer.appendChild(label);
 
-    // Draggable piece
+    // Draggable piece — use actual outline shape if available
     if (!this._aligned) {
-      const piece = _svgEl('rect', {
-        x: this._piecePos.x, y: this._piecePos.y,
-        width: this._pieceSize.width, height: this._pieceSize.height,
-        fill: 'rgba(196, 168, 130, 0.3)',
-        stroke: COLORS.ACCENT,
-        'stroke-width': 1.5,
-        cursor: 'grab',
-        rx: 2,
-      });
-      this._gameLayer.appendChild(piece);
+      if (this._outlinePath && this._pieceBounds) {
+        const b = this._pieceBounds;
+        const sx = this._pieceSize.width / b.width;
+        const sy = this._pieceSize.height / b.height;
+        const g = _svgEl('g', {
+          transform: `translate(${this._piecePos.x - b.x * sx}, ${this._piecePos.y - b.y * sy}) scale(${sx}, ${sy})`,
+          cursor: 'grab',
+        });
+        const piece = _svgEl('path', {
+          d: this._outlinePath,
+          fill: 'rgba(196, 168, 130, 0.3)',
+          stroke: COLORS.ACCENT,
+          'stroke-width': String(1.5 / sx),
+        });
+        g.appendChild(piece);
+        this._gameLayer.appendChild(g);
+      } else {
+        const piece = _svgEl('rect', {
+          x: this._piecePos.x, y: this._piecePos.y,
+          width: this._pieceSize.width, height: this._pieceSize.height,
+          fill: 'rgba(196, 168, 130, 0.3)',
+          stroke: COLORS.ACCENT,
+          'stroke-width': 1.5,
+          cursor: 'grab',
+          rx: 2,
+        });
+        this._gameLayer.appendChild(piece);
+      }
     } else {
-      // Aligned piece (solid)
-      const piece = _svgEl('rect', {
-        x: tz.x, y: tz.y,
-        width: tz.width, height: tz.height,
-        fill: 'rgba(92, 184, 92, 0.2)',
-        stroke: COLORS.SUCCESS,
-        'stroke-width': 1.5,
-        rx: 2,
-      });
-      this._gameLayer.appendChild(piece);
+      // Aligned piece (solid) — use shape
+      if (this._outlinePath && this._pieceBounds) {
+        const b = this._pieceBounds;
+        const sx = tz.width / b.width;
+        const sy = tz.height / b.height;
+        const g = _svgEl('g', {
+          transform: `translate(${tz.x - b.x * sx}, ${tz.y - b.y * sy}) scale(${sx}, ${sy})`,
+        });
+        const piece = _svgEl('path', {
+          d: this._outlinePath,
+          fill: 'rgba(92, 184, 92, 0.2)',
+          stroke: COLORS.SUCCESS,
+          'stroke-width': String(1.5 / sx),
+        });
+        g.appendChild(piece);
+        this._gameLayer.appendChild(g);
+      } else {
+        const piece = _svgEl('rect', {
+          x: tz.x, y: tz.y,
+          width: tz.width, height: tz.height,
+          fill: 'rgba(92, 184, 92, 0.2)',
+          stroke: COLORS.SUCCESS,
+          'stroke-width': 1.5,
+          rx: 2,
+        });
+        this._gameLayer.appendChild(piece);
+      }
     }
   }
 }

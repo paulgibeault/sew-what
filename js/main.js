@@ -109,14 +109,14 @@ function _loop(timestamp) {
   // Update tweens
   const tweensActive = updateTweens(timestamp);
 
-  // Update active screen
-  screenManager.update(dt);
+  // Update active screen (returns true if it needs continuous frames)
+  const screenActive = screenManager.update(dt);
 
   // Reset dirty flag
   _dirty = false;
 
   // Continue loop if anything is animating
-  if (tweensActive || _dirty) {
+  if (tweensActive || _dirty || screenActive) {
     _scheduleFrame();
   }
 }
