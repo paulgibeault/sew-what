@@ -180,6 +180,30 @@
   font-weight: 700;
 }
 
+.btn-scrap {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--color-error);
+  color: var(--color-error);
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+  transition: opacity var(--transition-fast);
+  font-family: var(--font-main);
+}
+
+.btn-scrap:hover {
+  opacity: 1;
+  background: rgba(196, 80, 80, 0.15);
+}
+
 .card-grade.grade-a { color: var(--color-success); }
 .card-grade.grade-b { color: var(--color-accent); }
 .card-grade.grade-c { color: var(--color-warning); }
@@ -271,10 +295,10 @@
 }
 
 .sidebar-title {
-  font-size: 11px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 1.5px;
-  color: var(--color-text-muted);
+  color: var(--color-text);
   font-weight: 600;
 }
 
@@ -318,14 +342,14 @@
 }
 
 .sidebar-hint {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--color-text-muted);
   font-style: italic;
   line-height: 1.4;
 }
 
 .tray-piece-name {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--color-text);
 }
 
@@ -339,9 +363,9 @@
 .info-row {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
-  color: var(--color-text-muted);
-  padding: 2px 0;
+  font-size: 13px;
+  color: var(--color-text);
+  padding: 3px 0;
 }
 
 .info-row.valid {
@@ -389,9 +413,17 @@
 }
 
 .assembly-step-text {
-  font-size: 12px;
-  color: var(--color-text-muted);
+  font-size: 13px;
+  color: var(--color-text);
   margin-bottom: 4px;
+}
+
+.assembly-step-detail {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin-top: 2px;
+  line-height: 1.4;
 }
 
 .assembly-step-label {

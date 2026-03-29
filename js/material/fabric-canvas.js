@@ -151,6 +151,24 @@ export class FabricCanvas {
   _renderBolt() {
     this._boltLayer.innerHTML = '';
 
+    // Ensure arrow marker defs exist
+    if (!this._svg.querySelector('#grain-arrow')) {
+      const defs = this._svg.querySelector('defs') || this._svg.insertBefore(
+        document.createElementNS('http://www.w3.org/2000/svg', 'defs'), this._svg.firstChild);
+      const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+      marker.setAttribute('id', 'grain-arrow');
+      marker.setAttribute('markerWidth', '8');
+      marker.setAttribute('markerHeight', '6');
+      marker.setAttribute('refX', '8');
+      marker.setAttribute('refY', '3');
+      marker.setAttribute('orient', 'auto');
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      poly.setAttribute('points', '0 0, 8 3, 0 6');
+      poly.setAttribute('fill', 'rgba(140, 160, 120, 0.6)');
+      marker.appendChild(poly);
+      defs.appendChild(marker);
+    }
+
     // Bolt background
     const rect = this._createSVGElement('rect', {
       x: 0, y: 0,
@@ -158,71 +176,65 @@ export class FabricCanvas {
       height: this._boltHeight,
       fill: '#2a2820',
       stroke: COLORS.ACCENT_DIM,
-      'stroke-width': 1,
+      'stroke-width': 1.5,
       rx: 2,
     });
     this._boltLayer.appendChild(rect);
 
-    // Fabric texture lines (subtle woven pattern)
-    for (let y = 0; y < this._boltHeight; y += 8) {
-      const line = this._createSVGElement('line', {
+    // Subtle woven texture
+    for (let y = 0; y < this._boltHeight; y += 12) {
+      this._boltLayer.appendChild(this._createSVGElement('line', {
         x1: 0, y1: y, x2: this._boltWidth, y2: y,
-        stroke: 'rgba(196, 168, 130, 0.04)',
-        'stroke-width': 0.5,
-      });
-      this._boltLayer.appendChild(line);
+        stroke: 'rgba(160, 140, 110, 0.05)', 'stroke-width': 0.5,
+      }));
     }
-    for (let x = 0; x < this._boltWidth; x += 8) {
-      const line = this._createSVGElement('line', {
+    for (let x = 0; x < this._boltWidth; x += 6) {
+      this._boltLayer.appendChild(this._createSVGElement('line', {
         x1: x, y1: 0, x2: x, y2: this._boltHeight,
-        stroke: 'rgba(196, 168, 130, 0.04)',
-        'stroke-width': 0.5,
-      });
-      this._boltLayer.appendChild(line);
+        stroke: 'rgba(160, 140, 110, 0.07)', 'stroke-width': 0.75,
+      }));
     }
 
-    // Grainline arrow (bolt grain direction — vertical)
+    // Selvage edges — thicker lines on left & right
+    for (const sx of [0, this._boltWidth]) {
+      this._boltLayer.appendChild(this._createSVGElement('line', {
+        x1: sx, y1: 0, x2: sx, y2: this._boltHeight,
+        stroke: 'rgba(140, 160, 120, 0.4)', 'stroke-width': 4,
+      }));
+    }
+
+    // Large blurry background chevron showing grain direction
     const cx = this._boltWidth / 2;
-    const arrowLen = 60;
-    const arrow = this._createSVGElement('line', {
-      x1: cx, y1: 10,
-      x2: cx, y2: 10 + arrowLen,
-      stroke: 'rgba(196, 168, 130, 0.2)',
-      'stroke-width': 1,
-      'stroke-dasharray': '4 3',
-      'marker-end': 'url(#fabric-arrow)',
-    });
-    this._boltLayer.appendChild(arrow);
+    const arrowW = this._boltWidth * 0.4;
+    const arrowTop = this._boltHeight * 0.25;
+    const arrowTip = this._boltHeight * 0.6;
 
-    // Arrow marker def
-    if (!this._svg.querySelector('#fabric-arrow')) {
-      const defs = this._svg.querySelector('defs') || this._svg.insertBefore(
-        document.createElementNS('http://www.w3.org/2000/svg', 'defs'), this._svg.firstChild);
-      const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
-      marker.setAttribute('id', 'fabric-arrow');
-      marker.setAttribute('markerWidth', '6');
-      marker.setAttribute('markerHeight', '4');
-      marker.setAttribute('refX', '6');
-      marker.setAttribute('refY', '2');
-      marker.setAttribute('orient', 'auto');
-      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-      poly.setAttribute('points', '0 0, 6 2, 0 4');
-      poly.setAttribute('fill', 'rgba(196, 168, 130, 0.3)');
-      marker.appendChild(poly);
-      defs.appendChild(marker);
+    // Blur filter
+    if (!this._svg.querySelector('#grain-blur')) {
+      const defs = this._svg.querySelector('defs');
+      const filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+      filter.setAttribute('id', 'grain-blur');
+      filter.setAttribute('x', '-50%');
+      filter.setAttribute('y', '-50%');
+      filter.setAttribute('width', '200%');
+      filter.setAttribute('height', '200%');
+      const blur = document.createElementNS('http://www.w3.org/2000/svg', 'feGaussianBlur');
+      blur.setAttribute('stdDeviation', '8');
+      filter.appendChild(blur);
+      defs.appendChild(filter);
     }
 
-    // Dimension labels
-    const widthLabel = this._createSVGElement('text', {
-      x: this._boltWidth / 2,
-      y: this._boltHeight + 16,
-      'text-anchor': 'middle',
-      fill: COLORS.TEXT_MUTED,
-      'font-size': 10,
-      'font-family': 'monospace',
+    const chevron = this._createSVGElement('path', {
+      d: `M ${cx - arrowW} ${arrowTop} L ${cx} ${arrowTip} L ${cx + arrowW} ${arrowTop}`,
+      fill: 'none',
+      stroke: 'rgba(140, 160, 120, 0.18)',
+      'stroke-width': 28,
+      'stroke-linecap': 'round',
+      'stroke-linejoin': 'round',
+      'pointer-events': 'none',
+      'filter': 'url(#grain-blur)',
     });
-    widthLabel.textContent = `${this._boltWidth / PPI}"`;
-    this._boltLayer.appendChild(widthLabel);
+    this._boltLayer.appendChild(chevron);
   }
 
   _renderPieces(pattern, placedPieces, ghost) {
@@ -288,27 +300,29 @@ export class FabricCanvas {
       y: bounds.y + cy,
       'text-anchor': 'middle',
       'dominant-baseline': 'middle',
-      fill: COLORS.TEXT_MUTED,
-      'font-size': 9,
+      fill: COLORS.TEXT,
+      'font-size': 12,
       'font-family': 'monospace',
       'pointer-events': 'none',
     });
     label.textContent = piece.name;
     g.appendChild(label);
 
-    // Grainline mismatch warning
+    // Grainline mismatch warning — only for truly off-grain angles
     const rot = ((rotation % 360) + 360) % 360;
-    if (rot !== 0 && rot !== 180) {
+    const isAligned = rot === 0 || rot === 90 || rot === 180 || rot === 270;
+    if (!isAligned) {
       const warn = this._createSVGElement('text', {
         x: bounds.x + cx,
-        y: bounds.y + cy + 14,
+        y: bounds.y + cy + 16,
         'text-anchor': 'middle',
         fill: COLORS.WARNING,
-        'font-size': 8,
+        'font-size': 11,
         'font-family': 'monospace',
+        'font-weight': 'bold',
         'pointer-events': 'none',
       });
-      warn.textContent = 'OFF GRAIN';
+      warn.textContent = '\u26A0 OFF GRAIN';
       g.appendChild(warn);
     }
 
@@ -346,11 +360,12 @@ export class FabricCanvas {
       this._uiLayer.appendChild(indicator);
 
       const angleLabel = this._createSVGElement('text', {
-        x: rcx, y: rcy - radius - 8,
+        x: rcx, y: rcy - radius - 10,
         'text-anchor': 'middle',
-        fill: COLORS.ACCENT,
-        'font-size': 9,
+        fill: COLORS.ACCENT_LIGHT,
+        'font-size': 14,
         'font-family': 'monospace',
+        'font-weight': 'bold',
         'pointer-events': 'none',
       });
       angleLabel.textContent = `${rotation}\u00B0`;

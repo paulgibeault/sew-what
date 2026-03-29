@@ -4,8 +4,11 @@
    ============================================================ */
 
 import { DRAFTING } from '../constants.js';
+import { getPieceBounds } from '../drafting/pattern.js';
 
 const PPI = DRAFTING.PX_PER_INCH;
+const BOUNDS_TOLERANCE = 5;  // px tolerance for bolt edge checks
+const OVERLAP_TOLERANCE = 4; // px tolerance for overlap checks
 
 /**
  * Validate a fabric layout.
@@ -28,21 +31,22 @@ export function validateLayout(layout, pattern) {
 
   const placed = placedPieces.filter(p => p.placed);
 
-  // Get bounds for each placed piece
+  // Get rotated AABB for each placed piece
   const pieceBounds = placed.map(pp => {
     const piece = pattern.pieces.find(p => p.id === pp.pieceId);
     if (!piece) return null;
-    return _getPlacedBounds(pp, piece);
+    return _getRotatedAABB(pp, piece);
   }).filter(Boolean);
 
-  // Check within bolt bounds
+  // Check within bolt bounds (with tolerance)
   for (const pb of pieceBounds) {
-    if (pb.x < 0 || pb.y < 0 || pb.x + pb.width > boltW || pb.y + pb.height > boltH) {
+    if (pb.left < -BOUNDS_TOLERANCE || pb.top < -BOUNDS_TOLERANCE ||
+        pb.right > boltW + BOUNDS_TOLERANCE || pb.bottom > boltH + BOUNDS_TOLERANCE) {
       errors.push(`"${pb.name}" extends beyond fabric bolt`);
     }
   }
 
-  // Check overlaps (bounding box)
+  // Check overlaps (with tolerance)
   for (let i = 0; i < pieceBounds.length; i++) {
     for (let j = i + 1; j < pieceBounds.length; j++) {
       if (_boundsOverlap(pieceBounds[i], pieceBounds[j])) {
@@ -51,31 +55,31 @@ export function validateLayout(layout, pattern) {
     }
   }
 
-  // Check grainlines
+  // Check grainlines — 0° and 180° are on-grain, 90° and 270° are crossgrain (acceptable)
+  // Only flag truly off-grain angles (45°, 135°, etc.)
   for (const pp of placed) {
     const piece = pattern.pieces.find(p => p.id === pp.pieceId);
     if (!piece) continue;
     const rot = ((pp.rotation % 360) + 360) % 360;
-    // On-grain: piece grainline (0°) + rotation should result in vertical grain
-    // Valid rotations are 0° and 180° for pieces with 0° grainline
-    if (rot !== 0 && rot !== 180) {
-      errors.push(`"${piece.name}" is off-grain (rotate to 0° or 180°)`);
+    const isAligned = rot === 0 || rot === 90 || rot === 180 || rot === 270;
+    if (!isAligned) {
+      errors.push(`"${piece.name}" is off-grain (rotate to 0°, 90°, 180°, or 270°)`);
     }
   }
 
-  // Calculate yardage
+  // Calculate yardage from the lowest point of any piece
   let maxY = 0;
   for (const pb of pieceBounds) {
-    maxY = Math.max(maxY, pb.y + pb.height);
+    maxY = Math.max(maxY, pb.bottom);
   }
-  const yardageUsed = maxY / PPI / 36; // convert px -> inches -> yards
+  const yardageUsed = maxY / PPI / 36;
 
   // Calculate efficiency
   let totalPieceArea = 0;
   for (const pb of pieceBounds) {
-    totalPieceArea += pb.width * pb.height;
+    totalPieceArea += pb.w * pb.h; // un-rotated area (rotation doesn't change area)
   }
-  const usedBoltArea = boltW * maxY;
+  const usedBoltArea = boltW * Math.max(maxY, 1);
   const efficiency = usedBoltArea > 0 ? totalPieceArea / usedBoltArea : 0;
 
   return {
@@ -86,47 +90,46 @@ export function validateLayout(layout, pattern) {
   };
 }
 
-function _getPlacedBounds(placedPiece, patternPiece) {
-  // Get piece bounding box in its local space
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const a of patternPiece.anchors) {
-    minX = Math.min(minX, a.x);
-    maxX = Math.max(maxX, a.x);
-    minY = Math.min(minY, a.y);
-    maxY = Math.max(maxY, a.y);
-  }
-  const localW = maxX - minX;
-  const localH = maxY - minY;
-
-  // Compute rotated AABB by rotating the 4 corners around piece center
-  const cx = placedPiece.x + localW / 2;
-  const cy = placedPiece.y + localH / 2;
+/**
+ * Compute the axis-aligned bounding box of a placed+rotated piece.
+ * Uses the same coordinate model as the SVG rendering and hit-testing:
+ *   center = (pp.x + w/2, pp.y + h/2)  where w,h are un-rotated dimensions
+ *   corners are rotated around this center
+ */
+function _getRotatedAABB(placedPiece, patternPiece) {
+  const bounds = getPieceBounds(patternPiece);
+  const w = bounds.width;
+  const h = bounds.height;
+  const cx = placedPiece.x + w / 2;
+  const cy = placedPiece.y + h / 2;
   const rot = (placedPiece.rotation || 0) * Math.PI / 180;
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
+
   const corners = [
-    { x: -localW/2, y: -localH/2 }, { x: localW/2, y: -localH/2 },
-    { x: localW/2, y: localH/2 },   { x: -localW/2, y: localH/2 },
+    { x: -w/2, y: -h/2 }, { x: w/2, y: -h/2 },
+    { x: w/2, y: h/2 },   { x: -w/2, y: h/2 },
   ].map(c => ({
-    x: cx + c.x * Math.cos(rot) - c.y * Math.sin(rot),
-    y: cy + c.x * Math.sin(rot) + c.y * Math.cos(rot),
+    x: cx + c.x * cos - c.y * sin,
+    y: cy + c.x * sin + c.y * cos,
   }));
 
-  const rx = Math.min(...corners.map(c => c.x));
-  const ry = Math.min(...corners.map(c => c.y));
-  const rw = Math.max(...corners.map(c => c.x)) - rx;
-  const rh = Math.max(...corners.map(c => c.y)) - ry;
+  const left   = Math.min(...corners.map(c => c.x));
+  const right  = Math.max(...corners.map(c => c.x));
+  const top    = Math.min(...corners.map(c => c.y));
+  const bottom = Math.max(...corners.map(c => c.y));
 
   return {
-    x: rx, y: ry,
-    width: rw, height: rh,
+    left, right, top, bottom,
+    w, h, // un-rotated dimensions for area calc
     name: patternPiece.name,
     pieceId: patternPiece.id,
   };
 }
 
 function _boundsOverlap(a, b) {
-  const pad = 2; // small tolerance
-  return !(a.x + a.width - pad <= b.x ||
-           b.x + b.width - pad <= a.x ||
-           a.y + a.height - pad <= b.y ||
-           b.y + b.height - pad <= a.y);
+  return !(a.right - OVERLAP_TOLERANCE <= b.left ||
+           b.right - OVERLAP_TOLERANCE <= a.left ||
+           a.bottom - OVERLAP_TOLERANCE <= b.top ||
+           b.bottom - OVERLAP_TOLERANCE <= a.top);
 }

@@ -238,7 +238,11 @@ export class AlignAndSewGame {
     this._svg = svgEl;
     this._targetZone = targetZone; // { x, y, width, height }
     this._pieceSize = pieceSize;   // { width, height }
-    this._piecePos = { x: targetZone.x + 100, y: targetZone.y - 80 }; // start offset
+    // Start the piece offset from target but always visible within the viewBox
+    this._piecePos = {
+      x: Math.max(10, Math.min(350, targetZone.x + targetZone.width + 30)),
+      y: Math.max(10, Math.min(350, targetZone.y + targetZone.height + 40)),
+    };
     this._aligned = false;
     this._completed = false;
     this._alignScore = 0;

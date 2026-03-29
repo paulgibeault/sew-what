@@ -41,11 +41,6 @@ export async function mount(container) {
   el.innerHTML = `
     <div class="drafting-toolbar">
       <div class="toolbar-group">
-        <button class="tool-btn active" data-tool="select" title="Select / Move Points">&#9654;</button>
-        <button class="tool-btn" data-tool="pan" title="Pan Canvas">&#9995;</button>
-      </div>
-      <div class="toolbar-separator"></div>
-      <div class="toolbar-group">
         <label style="font-size:11px; color:var(--color-text-muted); display:flex; align-items:center; gap:6px;">
           Size:
           <select id="size-select" style="background:var(--color-bg-elevated); color:var(--color-text); border:1px solid var(--color-bg-elevated); border-radius:4px; padding:4px 8px; font-size:12px;">
@@ -168,11 +163,21 @@ export function onResize() {
   }
 }
 
+// --- Coordinate helper ---
+
+function _toViewport(event) {
+  const c = document.getElementById('screen-container');
+  if (!c) return { x: event.x, y: event.y };
+  const r = c.getBoundingClientRect();
+  return { x: event.x + r.left, y: event.y + r.top };
+}
+
 // --- Input Handlers ---
 
 function _onTap(event) {
   if (_activeTool === TOOL.SELECT && _currentPattern) {
-    const svgPos = _svgCanvas.screenToSVG(event.x, event.y);
+    const vp = _toViewport(event);
+    const svgPos = _svgCanvas.screenToSVG(vp.x, vp.y);
     const anchor = _findAnchorInPattern(svgPos.x, svgPos.y);
     _svgCanvas.setSelectedAnchor(anchor ? anchor.anchorId : null);
     _dirty = true;
@@ -180,14 +185,15 @@ function _onTap(event) {
 }
 
 function _onDragStart(event) {
-  if (_activeTool === TOOL.PAN || event.button === 1) {
+  if (event.button === 1) {
     _isPanning = true;
     _lastPanPos = { x: event.x, y: event.y };
     return;
   }
 
   if (_activeTool === TOOL.SELECT && _currentPattern) {
-    const svgPos = _svgCanvas.screenToSVG(event.x, event.y);
+    const vp = _toViewport(event);
+    const svgPos = _svgCanvas.screenToSVG(vp.x, vp.y);
     const anchor = _findAnchorInPattern(svgPos.x, svgPos.y);
     if (anchor) {
       _draggingAnchor = anchor;
@@ -212,7 +218,8 @@ function _onDrag(event) {
   }
 
   if (_draggingAnchor && _currentPattern) {
-    const svgPos = _svgCanvas.screenToSVG(event.x, event.y);
+    const vp = _toViewport(event);
+    const svgPos = _svgCanvas.screenToSVG(vp.x, vp.y);
     const piece = _currentPattern.pieces.find(p => p.id === _draggingAnchor.pieceId);
     const anchor = piece ? piece.anchors.find(a => a.id === _draggingAnchor.anchorId) : null;
 
@@ -247,16 +254,15 @@ function _onDragEnd(event) {
 }
 
 function _onPinch(event) {
-  const rect = _container.getBoundingClientRect();
-  const cx = event.center ? event.center.x + rect.left : rect.left + rect.width / 2;
-  const cy = event.center ? event.center.y + rect.top : rect.top + rect.height / 2;
-  _svgCanvas.applyZoom(event.scale, cx, cy);
+  const vp = event.center ? _toViewport({ x: event.center.x, y: event.center.y }) : _toViewport(event);
+  _svgCanvas.applyZoom(event.scale, vp.x, vp.y);
   _dirty = true;
 }
 
 function _onHover(event) {
   if (!_currentPattern) return;
-  const svgPos = _svgCanvas.screenToSVG(event.x, event.y);
+  const vp = _toViewport(event);
+  const svgPos = _svgCanvas.screenToSVG(vp.x, vp.y);
   const anchor = _findAnchorInPattern(svgPos.x, svgPos.y);
   _svgCanvas.setHoveredAnchor(anchor ? anchor.anchorId : null);
   _dirty = true;
@@ -418,20 +424,6 @@ function _populateSizeSelect() {
 }
 
 function _bindToolbar() {
-  // Tool buttons
-  _container.addEventListener('click', (e) => {
-    const toolBtn = e.target.closest('.tool-btn');
-    if (toolBtn) {
-      const tool = toolBtn.getAttribute('data-tool');
-      if (tool) {
-        _activeTool = tool;
-        // Update active states
-        _container.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-        toolBtn.classList.add('active');
-      }
-    }
-  });
-
   // Validate button
   const validateBtn = document.getElementById('validate-btn');
   if (validateBtn) {

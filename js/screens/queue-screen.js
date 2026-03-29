@@ -196,10 +196,18 @@ function _resumeProject(queueItem) {
 // --- Card Click Handler ---
 
 function _onCardClick(e) {
+  // Check for scrap button first
+  const scrapBtn = e.target.closest('[data-action="scrap"]');
+  if (scrapBtn) {
+    e.stopPropagation();
+    const itemId = scrapBtn.getAttribute('data-id');
+    if (itemId) _scrapProject(itemId);
+    return;
+  }
+
   const card = e.target.closest('.project-card');
   if (!card) return;
 
-  const action = e.target.closest('[data-action]');
   const column = card.getAttribute('data-column');
   const itemId = card.getAttribute('data-id');
 
@@ -214,7 +222,24 @@ function _onCardClick(e) {
     const item = state.queue.inProgress.find(p => p.id === itemId);
     if (item) _resumeProject(item);
   }
-  // Finished cards are view-only for now
+}
+
+function _scrapProject(itemId) {
+  const state = getState();
+
+  // Remove from inProgress
+  const inProgress = (state.queue.inProgress || []).filter(p => p.id !== itemId);
+
+  // Clear activeProject if it's the one being scrapped
+  const ap = state.activeProject;
+  const clearActive = ap && ap.id === itemId;
+
+  updateState({
+    queue: { ...state.queue, inProgress },
+    activeProject: clearActive ? null : ap,
+  });
+
+  showToast('Project scrapped', 'info');
 }
 
 // --- Rendering ---
@@ -268,6 +293,7 @@ function _renderColumn(containerId, items, column) {
       const stage = (ap && ap.id === item.id) ? ap.stage : 'drafting';
       meta += `<span class="card-stage">${stage}</span>`;
       meta += `<span class="card-action">Tap to Resume</span>`;
+      meta += `<button class="btn-scrap" data-action="scrap" data-id="${item.id}" title="Scrap project">\u2715</button>`;
     } else if (column === 'finished') {
       const grade = item.grade || '?';
       meta += `<span class="card-grade grade-${grade.toLowerCase()}">${grade}</span>`;
