@@ -312,6 +312,18 @@
   cursor: default;
 }
 
+.tray-piece.selected {
+  border-color: var(--color-accent-light);
+  background: rgba(196, 168, 130, 0.15);
+}
+
+.sidebar-hint {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-style: italic;
+  line-height: 1.4;
+}
+
 .tray-piece-name {
   font-size: 11px;
   color: var(--color-text);

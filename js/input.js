@@ -100,12 +100,16 @@ export class InputManager {
   _onPointerDown(e) {
     // Don't capture pointer on interactive DOM elements — let clicks propagate normally
     const tag = e.target.tagName;
-    const isInteractive = tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT' ||
+    const isButton = tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT' ||
       tag === 'LABEL' || tag === 'A' ||
       e.target.closest('button, input, select, label, a, .btn, .project-card, .picker-option, .nav-tab');
-    if (isInteractive) return;
+    if (isButton) return;
 
-    this._el.setPointerCapture(e.pointerId);
+    // For tray pieces: track for drag but don't capture (so click still fires if no drag)
+    const isTrayPiece = e.target.closest('.tray-piece');
+    if (!isTrayPiece) {
+      this._el.setPointerCapture(e.pointerId);
+    }
     const pos = this._getPos(e);
 
     this._pointers.set(e.pointerId, {

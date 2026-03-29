@@ -98,16 +98,26 @@ function _getPlacedBounds(placedPiece, patternPiece) {
   const localW = maxX - minX;
   const localH = maxY - minY;
 
-  const rot = ((placedPiece.rotation % 360) + 360) % 360;
-  const isRotated90 = rot === 90 || rot === 270;
-  const w = isRotated90 ? localH : localW;
-  const h = isRotated90 ? localW : localH;
+  // Compute rotated AABB by rotating the 4 corners around piece center
+  const cx = placedPiece.x + localW / 2;
+  const cy = placedPiece.y + localH / 2;
+  const rot = (placedPiece.rotation || 0) * Math.PI / 180;
+  const corners = [
+    { x: -localW/2, y: -localH/2 }, { x: localW/2, y: -localH/2 },
+    { x: localW/2, y: localH/2 },   { x: -localW/2, y: localH/2 },
+  ].map(c => ({
+    x: cx + c.x * Math.cos(rot) - c.y * Math.sin(rot),
+    y: cy + c.x * Math.sin(rot) + c.y * Math.cos(rot),
+  }));
+
+  const rx = Math.min(...corners.map(c => c.x));
+  const ry = Math.min(...corners.map(c => c.y));
+  const rw = Math.max(...corners.map(c => c.x)) - rx;
+  const rh = Math.max(...corners.map(c => c.y)) - ry;
 
   return {
-    x: placedPiece.x,
-    y: placedPiece.y,
-    width: w,
-    height: h,
+    x: rx, y: ry,
+    width: rw, height: rh,
     name: patternPiece.name,
     pieceId: patternPiece.id,
   };

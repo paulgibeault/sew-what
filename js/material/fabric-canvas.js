@@ -14,7 +14,7 @@ export class FabricCanvas {
     this._container = containerEl;
     this._boltWidth = 45 * PPI;   // px
     this._boltHeight = 72 * PPI;  // px
-    this._viewBox = { x: -20, y: -20, w: 0, h: 0 };
+    this._viewBox = { x: 0, y: 0, w: 0, h: 0 };
     this._selectedPieceId = null;
     this._hoveredPieceId = null;
 
@@ -24,30 +24,92 @@ export class FabricCanvas {
     this._uiLayer = this._createGroup('ui-layer');
 
     this.resize();
+    this.fitToView();
   }
 
   resize() {
     const rect = this._container.getBoundingClientRect();
-    const padding = 40;
-    // Fit bolt width into container with padding
-    const scale = (rect.width - padding * 2) / this._boltWidth;
-    const viewH = rect.height / scale;
-    this._viewBox = {
-      x: -padding / scale,
-      y: -padding / scale,
-      w: rect.width / scale,
-      h: viewH,
-    };
-    this._svg.setAttribute('viewBox',
-      `${this._viewBox.x} ${this._viewBox.y} ${this._viewBox.w} ${this._viewBox.h}`);
     this._svg.setAttribute('width', rect.width);
     this._svg.setAttribute('height', rect.height);
+    this._applyViewBox();
+  }
+
+  fitToView() {
+    const rect = this._container.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const padding = 30;
+    const boltW = this._boltWidth + padding * 2;
+    const boltH = this._boltHeight + padding * 2;
+
+    // Fit the entire bolt into the view
+    const scaleX = rect.width / boltW;
+    const scaleY = rect.height / boltH;
+    const scale = Math.min(scaleX, scaleY);
+
+    const viewW = rect.width / scale;
+    const viewH = rect.height / scale;
+
+    // Center the bolt in the view
+    this._viewBox = {
+      x: -padding + (this._boltWidth - viewW + padding * 2) / 2,
+      y: -padding,
+      w: viewW,
+      h: viewH,
+    };
+    this._applyViewBox();
+  }
+
+  /**
+   * Pan the view by screen-space pixel deltas.
+   */
+  pan(dxScreen, dyScreen) {
+    const rect = this._container.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const scaleX = this._viewBox.w / rect.width;
+    const scaleY = this._viewBox.h / rect.height;
+    this._viewBox.x -= dxScreen * scaleX;
+    this._viewBox.y -= dyScreen * scaleY;
+    this._applyViewBox();
+  }
+
+  /**
+   * Zoom centered on a viewport point.
+   */
+  applyZoom(factor, viewportX, viewportY) {
+    const rect = this._container.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    // Convert viewport point to SVG coords before zoom
+    const relX = (viewportX - rect.left) / rect.width;
+    const relY = (viewportY - rect.top) / rect.height;
+    const svgX = this._viewBox.x + relX * this._viewBox.w;
+    const svgY = this._viewBox.y + relY * this._viewBox.h;
+
+    // Clamp zoom
+    const minW = this._boltWidth * 0.3;
+    const maxW = this._boltWidth * 3;
+    const newW = Math.max(minW, Math.min(maxW, this._viewBox.w / factor));
+    const newH = newW * (rect.height / rect.width);
+
+    // Keep the point under the cursor fixed
+    this._viewBox.x = svgX - relX * newW;
+    this._viewBox.y = svgY - relY * newH;
+    this._viewBox.w = newW;
+    this._viewBox.h = newH;
+    this._applyViewBox();
   }
 
   setBoltSize(widthInches, heightInches) {
     this._boltWidth = widthInches * PPI;
     this._boltHeight = heightInches * PPI;
     this.resize();
+    this.fitToView();
+  }
+
+  _applyViewBox() {
+    this._svg.setAttribute('viewBox',
+      `${this._viewBox.x} ${this._viewBox.y} ${this._viewBox.w} ${this._viewBox.h}`);
   }
 
   setSelectedPiece(pieceId) {
@@ -79,11 +141,11 @@ export class FabricCanvas {
    * Render the full fabric layout.
    * @param {object} pattern - PatternData
    * @param {Array} placedPieces - array of { pieceId, x, y, rotation, placed }
-   * @param {object} [dragState] - { pieceId, x, y, rotation } for piece being dragged
+   * @param {object} [ghost] - { pieceId, x, y, rotation } ghost piece being dragged
    */
-  render(pattern, placedPieces, dragState) {
+  render(pattern, placedPieces, ghost) {
     this._renderBolt();
-    this._renderPieces(pattern, placedPieces, dragState);
+    this._renderPieces(pattern, placedPieces, ghost);
   }
 
   _renderBolt() {
@@ -163,29 +225,25 @@ export class FabricCanvas {
     this._boltLayer.appendChild(widthLabel);
   }
 
-  _renderPieces(pattern, placedPieces, dragState) {
+  _renderPieces(pattern, placedPieces, ghost) {
     this._pieceLayer.innerHTML = '';
     this._uiLayer.innerHTML = '';
 
     for (const pp of placedPieces) {
       if (!pp.placed) continue;
-
       const piece = pattern.pieces.find(p => p.id === pp.pieceId);
       if (!piece) continue;
-
-      const isDragging = dragState && dragState.pieceId === pp.pieceId;
-      const x = isDragging ? dragState.x : pp.x;
-      const y = isDragging ? dragState.y : pp.y;
-      const rotation = isDragging ? dragState.rotation : pp.rotation;
-
-      this._renderPlacedPiece(piece, x, y, rotation, pp.pieceId);
+      this._renderPlacedPiece(piece, pp.x, pp.y, pp.rotation, pp.pieceId);
     }
 
-    // Render drag ghost if dragging an unplaced piece
-    if (dragState && !placedPieces.find(p => p.pieceId === dragState.pieceId && p.placed)) {
-      const piece = pattern.pieces.find(p => p.id === dragState.pieceId);
-      if (piece) {
-        this._renderPlacedPiece(piece, dragState.x, dragState.y, dragState.rotation, dragState.pieceId, true);
+    // Render ghost for tray-drag
+    if (ghost) {
+      const alreadyPlaced = placedPieces.find(p => p.pieceId === ghost.pieceId && p.placed);
+      if (!alreadyPlaced) {
+        const piece = pattern.pieces.find(p => p.id === ghost.pieceId);
+        if (piece) {
+          this._renderPlacedPiece(piece, ghost.x, ghost.y, ghost.rotation || 0, ghost.pieceId, true);
+        }
       }
     }
   }
@@ -256,20 +314,47 @@ export class FabricCanvas {
 
     this._pieceLayer.appendChild(g);
 
-    // Rotate button for selected piece
+    // Rotation ring for selected piece — centered on the same point as the SVG rotate transform
     if (isSelected && !isGhost) {
-      const btnX = x + bounds.width + 8;
-      const btnY = y;
-      const rotBtn = this._createSVGElement('text', {
-        x: btnX, y: btnY + 12,
-        fill: COLORS.ACCENT,
-        'font-size': 16,
-        cursor: 'pointer',
-        'data-action': 'rotate',
-        'data-piece-id': pieceId,
+      // This matches the rotate() center used in the transform above
+      const rcx = x + cx;  // cx = bounds.width / 2
+      const rcy = y + cy;  // cy = bounds.height / 2
+      const radius = Math.sqrt(bounds.width * bounds.width + bounds.height * bounds.height) / 2 + 6;
+
+      const ring = this._createSVGElement('circle', {
+        cx: rcx, cy: rcy, r: radius,
+        fill: 'none',
+        stroke: 'rgba(196, 168, 130, 0.25)',
+        'stroke-width': 8,
+        'stroke-dasharray': '4 4',
+        cursor: 'grab',
       });
-      rotBtn.textContent = '\u21BB'; // ↻
-      this._uiLayer.appendChild(rotBtn);
+      this._uiLayer.appendChild(ring);
+
+      // Rotation indicator line
+      const indicatorLen = radius + 10;
+      const angleRad = rotation * Math.PI / 180;
+      const ix = rcx + Math.cos(angleRad) * indicatorLen;
+      const iy = rcy + Math.sin(angleRad) * indicatorLen;
+      const indicator = this._createSVGElement('line', {
+        x1: rcx, y1: rcy, x2: ix, y2: iy,
+        stroke: COLORS.ACCENT,
+        'stroke-width': 1.5,
+        'stroke-dasharray': '3 2',
+        'pointer-events': 'none',
+      });
+      this._uiLayer.appendChild(indicator);
+
+      const angleLabel = this._createSVGElement('text', {
+        x: rcx, y: rcy - radius - 8,
+        'text-anchor': 'middle',
+        fill: COLORS.ACCENT,
+        'font-size': 9,
+        'font-family': 'monospace',
+        'pointer-events': 'none',
+      });
+      angleLabel.textContent = `${rotation}\u00B0`;
+      this._uiLayer.appendChild(angleLabel);
     }
   }
 
@@ -292,9 +377,9 @@ export class FabricCanvas {
 
   /**
    * Hit test: find which placed piece (if any) is at the given SVG coordinate.
+   * Uses the piece center + un-rotates the test point to check in local space.
    */
   hitTestPiece(svgX, svgY, pattern, placedPieces) {
-    // Check placed pieces in reverse order (top-most first)
     for (let i = placedPieces.length - 1; i >= 0; i--) {
       const pp = placedPieces[i];
       if (!pp.placed) continue;
@@ -303,13 +388,23 @@ export class FabricCanvas {
       if (!piece) continue;
 
       const bounds = getPieceBounds(piece);
-      const rot = ((pp.rotation % 360) + 360) % 360;
-      const isRotated90 = rot === 90 || rot === 270;
-      const w = isRotated90 ? bounds.height : bounds.width;
-      const h = isRotated90 ? bounds.width : bounds.height;
+      const w = bounds.width;
+      const h = bounds.height;
 
-      if (svgX >= pp.x && svgX <= pp.x + w &&
-          svgY >= pp.y && svgY <= pp.y + h) {
+      // Piece center in world space (matches the SVG rotate center)
+      const cx = pp.x + w / 2;
+      const cy = pp.y + h / 2;
+
+      // Un-rotate the test point back into local piece space
+      const rot = -(pp.rotation || 0) * Math.PI / 180;
+      const dx = svgX - cx;
+      const dy = svgY - cy;
+      const localX = dx * Math.cos(rot) - dy * Math.sin(rot);
+      const localY = dx * Math.sin(rot) + dy * Math.cos(rot);
+
+      // Check if inside the un-rotated bounding box (centered at origin)
+      const pad = 5; // small tolerance
+      if (Math.abs(localX) <= w / 2 + pad && Math.abs(localY) <= h / 2 + pad) {
         return pp.pieceId;
       }
     }
