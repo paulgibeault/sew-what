@@ -62,6 +62,25 @@ export const VALIDATION = Object.freeze({
   SEAM_ALLOW_TOO_SMALL:  'seam-allow-too-small',
   NO_GRAINLINE:          'no-grainline',
   SELF_INTERSECTION:     'self-intersection',
+  // A4: Enhanced metadata validation
+  NOTCH_UNPAIRED:        'notch-unpaired',
+  FOLD_NOT_ON_GRAIN:     'fold-not-on-grain',
+  INVALID_NOTCH_TYPE:    'invalid-notch-type',
+  SEAM_LABEL_ORPHAN:     'seam-label-orphan',
+});
+
+// --- Notch Types (A4) ---
+export const NOTCH_TYPE = Object.freeze({
+  SINGLE:   'single',
+  DOUBLE:   'double',
+  TRIANGLE: 'triangle',
+});
+
+// --- Fabric Types (A4) ---
+export const FABRIC_TYPE = Object.freeze({
+  SELF:         'self',
+  LINING:       'lining',
+  INTERFACING:  'interfacing',
 });
 
 // --- Assembly Fail States ---

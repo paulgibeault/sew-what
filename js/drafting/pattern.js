@@ -3,7 +3,7 @@
    Core data structure flowing through all three stages
    ============================================================ */
 
-import { ANCHOR, SEGMENT, DRAFTING } from '../constants.js';
+import { ANCHOR, SEGMENT, DRAFTING, NOTCH_TYPE, FABRIC_TYPE } from '../constants.js';
 import { uid, vecDist, vecSub, vecNormalize, vecAdd, vecScale } from '../utils.js';
 
 const PPI = DRAFTING.PX_PER_INCH;
@@ -95,12 +95,20 @@ export function getSeamAllowancePath(piece) {
 }
 
 /**
- * Get the grainline as an SVG line definition { x1, y1, x2, y2 }.
+ * Get the grainline as an SVG line definition { x1, y1, x2, y2, angle }.
+ * Prefers piece.grainline (A4 vector) over legacy piece.grainlineAngle.
  */
 export function getGrainline(piece) {
   if (piece.anchors.length < 2) return null;
 
-  // Find bounding box center
+  // A4: Use explicit grainline vector if present
+  if (piece.grainline) {
+    const { x1, y1, x2, y2 } = piece.grainline;
+    const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+    return { x1, y1, x2, y2, angle };
+  }
+
+  // Legacy: derive from grainlineAngle (degrees)
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (const a of piece.anchors) {
     minX = Math.min(minX, a.x);
@@ -121,7 +129,59 @@ export function getGrainline(piece) {
   return {
     x1: cx - dx, y1: cy - dy,
     x2: cx + dx, y2: cy + dy,
+    angle: piece.grainlineAngle || 0,
   };
+}
+
+/**
+ * Get the fold line for a piece, or null if none.
+ * @returns {{ x1, y1, x2, y2 } | null}
+ */
+export function getFoldLine(piece) {
+  return piece.foldLine || null;
+}
+
+/**
+ * Get all notches for a piece.
+ * @returns {Array<{ x, y, type, matchId }>}
+ */
+export function getNotches(piece) {
+  return piece.notches || [];
+}
+
+/**
+ * Add a notch to a piece at the given position.
+ * @param {object} piece - Pattern piece
+ * @param {number} x
+ * @param {number} y
+ * @param {string} type - NOTCH_TYPE value
+ * @param {string|null} matchId - ID of matching notch on another piece
+ * @returns {object} Updated piece
+ */
+export function addNotch(piece, x, y, type = NOTCH_TYPE.SINGLE, matchId = null) {
+  const notch = { id: uid('notch'), x, y, type, matchId };
+  return { ...piece, notches: [...(piece.notches || []), notch] };
+}
+
+/**
+ * Set the fold line for a piece (cut-on-fold edge).
+ * @param {object} piece
+ * @param {{ x1, y1, x2, y2 }|null} foldLine
+ * @returns {object} Updated piece
+ */
+export function setFoldLine(piece, foldLine) {
+  return { ...piece, foldLine };
+}
+
+/**
+ * Set the grainline vector for a piece.
+ * @param {object} piece
+ * @param {{ x1, y1, x2, y2 }} grainline
+ * @returns {object} Updated piece
+ */
+export function setGrainlineVector(piece, grainline) {
+  const angle = Math.atan2(grainline.y2 - grainline.y1, grainline.x2 - grainline.x1) * 180 / Math.PI;
+  return { ...piece, grainline, grainlineAngle: angle };
 }
 
 /**
@@ -166,6 +226,32 @@ function _createPiece(def, measurements) {
     segments,
     seamAllowance: sa,
     grainlineAngle: def.grainlineAngle || 0,
+
+    // A4: Enhanced pattern piece metadata
+    // Full grainline vector (derived from grainlineAngle if not specified explicitly)
+    grainline: def.grainline || null,
+
+    // Fold line — { x1, y1, x2, y2 } or null
+    // A null fold line means no cut-on-fold edge
+    foldLine: def.foldLine || null,
+
+    // Whether to cut a mirror copy of this piece
+    mirrorPiece: def.mirrorPiece || false,
+
+    // How many times to cut this piece from fabric
+    cutCount: def.cutCount || 2,
+
+    // Notches: [{ x, y, type: 'single'|'double'|'triangle', matchId }]
+    notches: def.notches || [],
+
+    // Drill holes for dart points, button placement: [{ x, y, label }]
+    drillHoles: def.drillHoles || [],
+
+    // Seam labels: [{ segmentId, label }]
+    seamLabels: def.seamLabels || [],
+
+    // Which fabric layer this piece is cut from
+    fabric: def.fabric || FABRIC_TYPE.SELF,
   };
 }
 
