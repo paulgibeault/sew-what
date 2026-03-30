@@ -22,10 +22,11 @@ Execute 3D spatial puzzles and precision mini-games to transform 2D panels into 
 ## Key Features
 
 - **Drafting Canvas** — Precision workspace with Direct Point Manipulation (stylus-friendly)
-- **Real-Time 3D Silhouette Preview** — See how flat pattern changes affect final drape
-- **Fabric Physics Engine** — Wool Tweed vs. Silk Chiffon behave completely differently
+- **Fabric Physics Engine** — Verlet cloth sim; Wool Tweed vs. Silk Chiffon behave completely differently
+- **Sewing Machine Mechanic** — Feed fabric, control speed, maintain seam allowance
 - **Sewing Queue** — Kanban-style project tracker (To-Sew → In-Progress → Finished)
-- **Inspiration Boards** — Drag-and-drop mood board for fabric swatches and references
+- **Inspiration Board** — Freeform mood board for fabric swatches and notes (drag-to-position, persisted)
+- **Enhanced Pattern Metadata** — Notches, fold lines, grainline vectors, fabric types
 - **Rectangular Mode** — Flatten garment bodies into totes, aprons, and tool caddies
 
 ## Assembly Puzzles (Highlights)
@@ -58,15 +59,25 @@ Fail states include:
 
 - JavaScript (ES Modules)
 - CSS (tablet-first, stylus-optimized)
-- No framework dependencies (yet)
+- No framework dependencies
 
 ## Status
 
-🚧 **Early development** — game design document complete, implementation in progress.
+✅ **MVP complete** — all five screens implemented, 144 tests passing.
+
+| Screen | Status |
+|--------|--------|
+| Inspiration Board | ✅ Mood board with swatches + notes |
+| Sewing Queue | ✅ Kanban (To-Sew / In-Progress / Finished) |
+| Drafting | ✅ Pattern canvas with validation |
+| Material | ✅ Fabric layout + yardage |
+| Assembly | ✅ Sewing machine mechanic + step engine |
+
+**Upcoming (Phase 2):** SVG/PDF pattern import, multi-phase construction steps, fabric interaction (fold, cut, pin).
 
 ## Design Document
 
-See [`sew-what.md`](./sew-what.md) for the full Game Design Document.
+See [`sew-what.md`](./sew-what.md) for the full Game Design Document and [`/.claude/plans/realistic-sewing-simulator.md`](./.claude/plans/realistic-sewing-simulator.md) for the Phase 2 roadmap.
 
 ---
 
