@@ -8,6 +8,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { StraightSeamGame, AlignAndSewGame } from '../js/assembly/mini-games.js';
+import { APRON_STEPS } from '../js/assembly/steps-apron.js';
 
 // --- Minimal SVG mock ---
 function mockSvg() {
@@ -288,12 +289,6 @@ describe('AlignAndSewGame — score after full completion', () => {
 // --- steps-apron.js ---
 
 describe('APRON_STEPS structure', () => {
-  let APRON_STEPS;
-
-  before(async () => {
-    const mod = await import('../js/assembly/steps-apron.js');
-    APRON_STEPS = mod.APRON_STEPS;
-  });
 
   it('exports a non-empty array', () => {
     assert.ok(Array.isArray(APRON_STEPS), 'APRON_STEPS should be an array');
