@@ -2,6 +2,12 @@
 
 > A high-fidelity garment design and assembly puzzle game. You're not just playing — you're engineering couture.
 
+<p align="center">
+  <a href="https://paulgibeault.github.io/sew-what/">
+    <img src="https://img.shields.io/badge/Start_Sewing-Play_Now-E91E63?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PHBhdGggZD0iTTcgMTdMMTcgN00xNyA3SDdNMTcgN1YxNyIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIi8+PC9zdmc+&logoColor=white" alt="Start Sewing" height="50">
+  </a>
+</p>
+
 ## What Is It?
 
 **Thread & Template** is a systems-driven puzzle game where players take on the role of a Senior Material Architect, managing the full lifecycle of couture garment construction — from parametric pattern drafting to fabric physics to precision assembly challenges.
