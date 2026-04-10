@@ -15,6 +15,14 @@ let _el = null;
 let _unsubscribe = null;
 let _pickerOpen = false;
 
+// Single source of truth for all project template display metadata.
+// Both _togglePicker() and _createProject() reference this map so that
+// adding a new template only requires one edit here.
+const PROJECT_TEMPLATES = Object.freeze({
+  'apron':       { name: 'Classic Apron', tier: TIER.BEGINNER },
+  'lined-skirt': { name: 'Lined Skirt',   tier: TIER.INTERMEDIATE },
+});
+
 export function mount(container) {
   _container = container;
 
@@ -90,14 +98,9 @@ function _togglePicker() {
   const state = getState();
   const unlocked = state.player.unlockedProjects || ['apron'];
 
-  const TEMPLATE_DISPLAY = {
-    'apron': { name: 'Classic Apron', tier: TIER.BEGINNER },
-    'lined-skirt': { name: 'Lined Skirt', tier: TIER.INTERMEDIATE },
-  };
-
   let html = '<div class="picker-title">Choose a Project</div><div class="picker-options">';
   for (const pid of unlocked) {
-    const info = TEMPLATE_DISPLAY[pid] || { name: pid, tier: TIER.BEGINNER };
+    const info = PROJECT_TEMPLATES[pid] || { name: pid, tier: TIER.BEGINNER };
     html += `
       <button class="picker-option" data-project="${pid}">
         <span class="project-card-name">${info.name}</span>
@@ -122,16 +125,13 @@ function _togglePicker() {
 
 function _createProject(projectId) {
   const state = getState();
-  const TEMPLATE_DISPLAY = {
-    'apron': 'Classic Apron',
-    'lined-skirt': 'Lined Skirt',
-  };
+  const tmpl = PROJECT_TEMPLATES[projectId] || { name: projectId, tier: TIER.BEGINNER };
 
   const project = {
     id: uid('proj'),
     projectId,
-    name: TEMPLATE_DISPLAY[projectId] || projectId,
-    tier: TIER.BEGINNER,
+    name: tmpl.name,
+    tier: tmpl.tier,
     createdAt: Date.now(),
   };
 
