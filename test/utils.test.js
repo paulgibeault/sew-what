@@ -10,7 +10,7 @@ import {
   vecDot, vecCross, vecDist, vecLerp,
   clamp, lerp, mapRange, snapTo, degToRad, radToDeg,
   pointInPolygon, hitTest, polygonArea, polygonPerimeter,
-  deepClone, uid,
+  deepClone, deepMerge, uid,
 } from '../js/utils.js';
 
 // --- Vector Math ---
@@ -206,6 +206,51 @@ describe('deepClone', () => {
     const clone = deepClone(original);
     clone[2][0] = 99;
     assert.equal(original[2][0], 3);
+  });
+});
+
+describe('deepMerge', () => {
+  it('fills missing keys from target', () => {
+    const target = { a: 1, b: 2, c: 3 };
+    const source = { a: 10 };
+    const result = deepMerge(target, source);
+    assert.deepEqual(result, { a: 10, b: 2, c: 3 });
+  });
+
+  it('recursively merges nested objects', () => {
+    const target = { settings: { theme: 'light', units: 'imperial' }, version: 1 };
+    const source = { settings: { units: 'metric' } };
+    const result = deepMerge(target, source);
+    assert.deepEqual(result, { settings: { theme: 'light', units: 'metric' }, version: 1 });
+  });
+
+  it('source arrays overwrite target arrays', () => {
+    const target = { items: [1, 2, 3] };
+    const source = { items: [4, 5] };
+    const result = deepMerge(target, source);
+    assert.deepEqual(result, { items: [4, 5] });
+  });
+
+  it('does not mutate target or source', () => {
+    const target = { a: { b: 1 } };
+    const source = { a: { c: 2 } };
+    deepMerge(target, source);
+    assert.deepEqual(target, { a: { b: 1 } });
+    assert.deepEqual(source, { a: { c: 2 } });
+  });
+
+  it('handles deeply nested structures', () => {
+    const target = { a: { b: { c: { d: 1, e: 2 } } } };
+    const source = { a: { b: { c: { e: 99 }, f: 3 } } };
+    const result = deepMerge(target, source);
+    assert.deepEqual(result, { a: { b: { c: { d: 1, e: 99 }, f: 3 } } });
+  });
+
+  it('source primitive overwrites target object', () => {
+    const target = { a: { nested: true } };
+    const source = { a: 42 };
+    const result = deepMerge(target, source);
+    assert.deepEqual(result, { a: 42 });
   });
 });
 

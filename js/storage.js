@@ -3,8 +3,8 @@
    ============================================================ */
 
 import { STORAGE } from './constants.js';
-import { getState, setState } from './state.js';
-import { debounce } from './utils.js';
+import { getState, setState, createInitialState } from './state.js';
+import { debounce, deepMerge } from './utils.js';
 
 /**
  * Save the current game state to localStorage.
@@ -19,7 +19,10 @@ export function saveGame() {
 }
 
 /**
- * Load game state from localStorage. Returns true if state was restored.
+ * Load game state from localStorage. Deep-merges saved data onto a fresh
+ * initial state so that any fields added in newer versions get their
+ * defaults even if the saved snapshot predates them.
+ * Returns true if state was restored.
  */
 export function loadGame() {
   try {
@@ -28,7 +31,9 @@ export function loadGame() {
 
     const saved = JSON.parse(raw);
     if (saved && typeof saved === 'object') {
-      setState(saved);
+      const base = createInitialState();
+      const merged = deepMerge(base, saved);
+      setState(merged);
       return true;
     }
   } catch (err) {
