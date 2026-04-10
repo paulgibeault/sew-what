@@ -214,6 +214,28 @@ export function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
+/**
+ * Deep-merge source into target. Arrays and non-object values in source
+ * overwrite target; plain-object values are merged recursively.
+ * Returns a new object — neither target nor source is mutated.
+ */
+export function deepMerge(target, source) {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    const srcVal = source[key];
+    const tgtVal = target[key];
+    if (
+      srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal) &&
+      tgtVal && typeof tgtVal === 'object' && !Array.isArray(tgtVal)
+    ) {
+      result[key] = deepMerge(tgtVal, srcVal);
+    } else {
+      result[key] = srcVal;
+    }
+  }
+  return result;
+}
+
 /** Debounce a function */
 export function debounce(fn, ms) {
   let timer;
