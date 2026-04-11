@@ -317,17 +317,28 @@ export class ClothSim {
 
     const { weight, damping, stiffness, stretchLimit } = this._preset;
     const gravity = GRAVITY * weight;
-
-    // Integrate positions
-    for (const p of this.particles) {
-      p.integrate(dt, gravity, damping);
-    }
-
-    // Satisfy constraints (multiple iterations for stiffness)
     const iters = Math.max(1, stiffness);
-    for (let i = 0; i < iters; i++) {
-      for (const c of this.constraints) {
-        c.satisfy(stretchLimit);
+
+    // Substep to prevent Verlet instability on large dt (GC pauses, thermal
+    // throttling, tab resumes). Cap per-substep dt at 33ms (1/30s) and allow
+    // up to 4 substeps — handling up to a ~133ms frame gap safely.
+    const MAX_DT = 1 / 30;
+    const MAX_SUBSTEPS = 4;
+    const totalDt = Math.min(dt, MAX_DT * MAX_SUBSTEPS);
+    const steps = Math.ceil(totalDt / MAX_DT);
+    const stepDt = totalDt / steps;
+
+    for (let s = 0; s < steps; s++) {
+      // Integrate positions
+      for (const p of this.particles) {
+        p.integrate(stepDt, gravity, damping);
+      }
+
+      // Satisfy constraints (multiple iterations for stiffness)
+      for (let i = 0; i < iters; i++) {
+        for (const c of this.constraints) {
+          c.satisfy(stretchLimit);
+        }
       }
     }
 
