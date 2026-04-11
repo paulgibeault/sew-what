@@ -5,6 +5,7 @@
    ============================================================ */
 
 import { COLORS, SCREEN } from '../constants.js';
+import { INPUT } from '../input.js';
 import { getState, updateNested, subscribe } from '../state.js';
 import { uid } from '../utils.js';
 
@@ -15,6 +16,7 @@ let _unsubscribe = null;
 
 // Drag state
 let _dragging = null;  // { id, offsetX, offsetY }
+let _selectedItemId = null;  // keyboard-selected item
 
 // Palette of fabric swatch colors
 const SWATCH_PALETTE = [
@@ -101,11 +103,45 @@ export function unmount() {
   _container = null;
   _el = null;
   _dragging = null;
+  _selectedItemId = null;
 }
 
 export function update(dt) {}
 
-export function onInput(event) {}
+export function onInput(event) {
+  if (event.type !== INPUT.KEY) return;
+  const { key, shiftKey } = event;
+  const items = _getItems();
+  if (items.length === 0) return;
+
+  // Tab / Shift+Tab: cycle through items
+  if (key === 'Tab') {
+    const ids = items.map(i => i.id);
+    const idx = _selectedItemId ? ids.indexOf(_selectedItemId) : -1;
+    const next = shiftKey
+      ? (idx <= 0 ? ids.length - 1 : idx - 1)
+      : (idx >= ids.length - 1 ? 0 : idx + 1);
+    _selectedItemId = ids[next];
+    _highlightSelected();
+    return;
+  }
+
+  if (!_selectedItemId) return;
+
+  // Arrow keys: reposition selected item
+  const NUDGE = shiftKey ? 20 : 6;
+  if (key === 'ArrowUp')    { _nudgeItem(_selectedItemId, 0, -NUDGE); return; }
+  if (key === 'ArrowDown')  { _nudgeItem(_selectedItemId, 0, NUDGE);  return; }
+  if (key === 'ArrowLeft')  { _nudgeItem(_selectedItemId, -NUDGE, 0); return; }
+  if (key === 'ArrowRight') { _nudgeItem(_selectedItemId, NUDGE, 0);  return; }
+
+  // Delete / Backspace: remove selected item
+  if (key === 'Delete' || key === 'Backspace') {
+    _removeItem(_selectedItemId);
+    _selectedItemId = null;
+    return;
+  }
+}
 
 // --- State ---
 
@@ -130,8 +166,34 @@ function _updateItem(id, patch) {
   _saveItems(_getItems().map(i => i.id === id ? { ...i, ...patch } : i));
 }
 
+function _nudgeItem(id, dx, dy) {
+  const item = _getItems().find(i => i.id === id);
+  if (!item) return;
+  _updateItem(id, {
+    x: Math.max(0, (item.x || 0) + dx),
+    y: Math.max(0, (item.y || 0) + dy),
+  });
+}
+
+function _highlightSelected() {
+  if (!_el) return;
+  const board = _el.querySelector('#insp-board');
+  if (!board) return;
+  // Remove previous highlight
+  board.querySelectorAll('[data-item-id]').forEach(el => {
+    el.style.outline = '';
+  });
+  // Add highlight to selected
+  if (_selectedItemId) {
+    const sel = board.querySelector(`[data-item-id="${_selectedItemId}"]`);
+    if (sel) sel.style.outline = '2px solid var(--color-accent, #c4a882)';
+  }
+}
+
 function _onStateChange(state) {
   _renderBoard();
+  // Re-apply keyboard selection highlight after re-render
+  _highlightSelected();
 }
 
 // --- Rendering ---

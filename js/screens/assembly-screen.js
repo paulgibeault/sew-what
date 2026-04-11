@@ -45,6 +45,10 @@ let _sewingCanvas = null;
 // Align-and-sew drag state (fold phase for attach steps)
 let _alignState = null; // { pieceId, x, y, targetX, targetY, w, h, aligned }
 
+// Keyboard sewing state
+let _kbSewing = false;    // Space held down — pedal active
+let _kbGuideOffset = 0;   // lateral guidance from A/D keys
+
 /** Check if saved assembly state step IDs match current step definitions */
 function _stepsMatch(savedSteps, currentSteps) {
   if (!savedSteps || savedSteps.length !== currentSteps.length) return false;
@@ -110,6 +114,8 @@ function _cleanupPhase() {
   _alignState = null;
   _sewingMachine = null;
   _sewingCanvas = null;
+  _kbSewing = false;
+  _kbGuideOffset = 0;
 }
 
 export function update(dt) {
@@ -131,6 +137,12 @@ export function update(dt) {
 
 export function onInput(event) {
   if (_showResults) return;
+
+  // Keyboard input — route to phase-specific handler
+  if (event.type === INPUT.KEY || event.type === INPUT.KEY_UP) {
+    _handleKeyboard(event);
+    return;
+  }
 
   if (_stepPhase === 'sew' && _sewingMachine) {
     _handleMachineInput(event);
@@ -753,6 +765,132 @@ function _handleMachineInput(event) {
     case INPUT.DRAG_END:
       _sewingMachine.releasePedal();
       break;
+  }
+}
+
+// =============================================
+// KEYBOARD INPUT
+// =============================================
+
+function _handleKeyboard(event) {
+  const { key } = event;
+  const isDown = event.type === INPUT.KEY;
+
+  // --- Sew phase: Space = pedal hold, A/D = lateral guidance ---
+  if (_stepPhase === 'sew' && _sewingMachine) {
+    if (key === ' ') {
+      if (isDown && !_kbSewing) {
+        _kbSewing = true;
+        _sewingMachine.lowerPresserFoot();
+        _sewingMachine.pressPedal(0.5);
+      } else if (!isDown && _kbSewing) {
+        _kbSewing = false;
+        _sewingMachine.releasePedal();
+      }
+      return;
+    }
+    if (isDown) {
+      if (key === 'a' || key === 'A' || key === 'ArrowLeft') {
+        _kbGuideOffset = clamp(_kbGuideOffset - 8, -60, 60);
+        _sewingMachine.guideFabric(_kbGuideOffset);
+        return;
+      }
+      if (key === 'd' || key === 'D' || key === 'ArrowRight') {
+        _kbGuideOffset = clamp(_kbGuideOffset + 8, -60, 60);
+        _sewingMachine.guideFabric(_kbGuideOffset);
+        return;
+      }
+      // Up/Down arrow: adjust speed while sewing
+      if (_kbSewing) {
+        if (key === 'ArrowUp' || key === 'w' || key === 'W') {
+          _sewingMachine.pressPedal(0.8);
+          return;
+        }
+        if (key === 'ArrowDown' || key === 's' || key === 'S') {
+          _sewingMachine.pressPedal(0.3);
+          return;
+        }
+      }
+    }
+    return;
+  }
+
+  // Only handle keydown for fold/align phases
+  if (!isDown) return;
+
+  // --- Fold phase: arrow keys nudge the fold edge ---
+  if (_stepPhase === 'fold' && _foldState && !_foldState.folded) {
+    const NUDGE = 12;
+    const area = document.getElementById('assembly-canvas-area');
+    if (!area) return;
+
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+      // Synthesise a fold-edge movement
+      const rect = area.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+
+      // Track cumulative position for keyboard folding
+      if (!_foldState._kbPos) {
+        // Start from the fold edge's natural position
+        const edge = _foldState.edge;
+        _foldState._kbPos = {
+          x: centerX,
+          y: edge === 'bottom' ? rect.height - 20 : edge === 'top' ? 20 : centerY,
+        };
+        if (edge === 'left') _foldState._kbPos.x = 20;
+        if (edge === 'right') _foldState._kbPos.x = rect.width - 20;
+      }
+
+      if (key === 'ArrowUp')    _foldState._kbPos.y -= NUDGE;
+      if (key === 'ArrowDown')  _foldState._kbPos.y += NUDGE;
+      if (key === 'ArrowLeft')  _foldState._kbPos.x -= NUDGE;
+      if (key === 'ArrowRight') _foldState._kbPos.x += NUDGE;
+
+      _foldState.dragging = true;
+      _moveFoldEdge(_foldState._kbPos);
+      return;
+    }
+
+    // Enter: confirm fold
+    if (key === 'Enter') {
+      if (_foldState.dragging || _foldState._kbPos) {
+        _foldState.dragging = false;
+        if (_checkFoldComplete()) {
+          _foldState.folded = true;
+          showToast('Fold complete! Now sew the hem.', 'success');
+          setTimeout(() => _transitionToSew(), 600);
+        } else {
+          showToast('Drag the edge further to complete the fold', 'warning');
+        }
+      }
+      return;
+    }
+  }
+
+  // --- Align phase: arrow keys move the attach piece ---
+  if (_stepPhase === 'fold' && _alignState && !_alignState.aligned) {
+    const NUDGE = 6;
+    if (key === 'ArrowUp')    { _alignState.y -= NUDGE; return; }
+    if (key === 'ArrowDown')  { _alignState.y += NUDGE; return; }
+    if (key === 'ArrowLeft')  { _alignState.x -= NUDGE; return; }
+    if (key === 'ArrowRight') { _alignState.x += NUDGE; return; }
+
+    // Enter: try to snap-align
+    if (key === 'Enter') {
+      const dx = Math.abs(_alignState.x - _alignState.targetX);
+      const dy = Math.abs(_alignState.y - _alignState.targetY);
+      if (dx <= _alignState.snapRadius && dy <= _alignState.snapRadius) {
+        _alignState.x = _alignState.targetX;
+        _alignState.y = _alignState.targetY;
+        _alignState.aligned = true;
+        showToast('Aligned! Now sew the seam.', 'success');
+        setTimeout(() => _transitionToSew(), 600);
+      } else {
+        showToast('Move the piece closer to the target zone', 'warning');
+      }
+      return;
+    }
   }
 }
 
