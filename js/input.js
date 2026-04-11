@@ -15,6 +15,7 @@ export const INPUT = Object.freeze({
   DRAG_END:   'drag-end',
   PINCH:      'pinch',
   PAN:        'pan',
+  KEY:        'key',        // keyboard shortcut (desktop players)
 });
 
 // --- Pointer Types ---
@@ -40,6 +41,7 @@ export class InputManager {
     this._bound = {};
 
     this._bind();
+    this._bindKeyboard();
   }
 
   /** Subscribe to input events. Returns unsubscribe function. */
@@ -57,6 +59,10 @@ export class InputManager {
     el.removeEventListener('pointercancel', this._bound.up);
     el.removeEventListener('wheel', this._bound.wheel);
     el.removeEventListener('contextmenu', this._bound.context);
+    // Remove keyboard listener from document
+    if (this._bound.keydown) {
+      document.removeEventListener('keydown', this._bound.keydown);
+    }
     this._listeners.clear();
     this._pointers.clear();
   }
@@ -285,5 +291,35 @@ export class InputManager {
       x: (ptrs[0].x + ptrs[1].x) / 2,
       y: (ptrs[0].y + ptrs[1].y) / 2,
     };
+  }
+
+  /**
+   * Bind a document-level keydown listener that emits INPUT.KEY events.
+   * Skipped when focus is on a text/select control so browser shortcuts
+   * and form interactions aren't interrupted.
+   */
+  _bindKeyboard() {
+    this._bound.keydown = (e) => {
+      // Don't steal focus from real text inputs
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      // Don't interfere with browser-native shortcuts (Ctrl/Cmd combos)
+      if (e.ctrlKey || e.metaKey) return;
+
+      // Prevent browser scroll/tab-focus when the game handles these keys
+      const GAME_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', ' '];
+      if (GAME_KEYS.includes(e.key)) {
+        e.preventDefault();
+      }
+
+      this._emit(INPUT.KEY, {
+        key:      e.key,
+        code:     e.code,
+        shiftKey: e.shiftKey,
+        altKey:   e.altKey,
+      });
+    };
+    document.addEventListener('keydown', this._bound.keydown);
   }
 }

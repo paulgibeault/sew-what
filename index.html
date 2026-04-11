@@ -27,7 +27,7 @@
       <span class="nav-icon">&#9776;</span>
       <span class="nav-label">Queue</span>
     </button>
-    <button class="nav-tab active" data-screen="drafting" aria-label="Drafting Canvas">
+    <button class="nav-tab active" data-screen="drafting" aria-label="Drafting Canvas" aria-current="page">
       <span class="nav-icon">&#9998;</span>
       <span class="nav-label">Draft</span>
     </button>
@@ -42,6 +42,9 @@
   </nav>
 
   <main id="screen-container"></main>
+
+  <!-- Accessible live region for toast announcements -->
+  <div id="a11y-announcer" aria-live="polite" aria-atomic="true" class="visually-hidden"></div>
 
   <script type="module" src="js/main.js"></script>
 </body>
