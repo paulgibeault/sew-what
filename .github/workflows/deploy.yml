@@ -25,10 +25,20 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Build for deploy
+        run: |
+          mkdir -p dist
+          cp index.html dist/
+          cp manifest.json dist/
+          cp sew-what-logo.png dist/
+          cp -r css dist/
+          cp -r js dist/
+          cp -r data dist/
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist
 
       - name: Deploy to GitHub Pages
         id: deployment
