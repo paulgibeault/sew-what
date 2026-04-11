@@ -28,6 +28,7 @@ let _isPanning = false;
 let _lastPanPos = null;
 let _dirty = true;
 let _selectedSize = 'M';
+let _abortController = null; // AbortController for toolbar/proceed listener cleanup
 
 // --- Lifecycle ---
 
@@ -102,8 +103,9 @@ export async function mount(container) {
   _preview = new SilhouettePreview(previewCanvas);
   _preview.resize();
 
-  // Bind toolbar
-  _bindToolbar();
+  // Bind toolbar (scoped to this mount cycle's AbortController)
+  _abortController = new AbortController();
+  _bindToolbar(_abortController.signal);
 
   // Load measurements and create default pattern
   await loadMeasurements();
@@ -115,6 +117,10 @@ export async function mount(container) {
 }
 
 export function unmount() {
+  // Abort all toolbar listeners added during this mount cycle
+  _abortController?.abort();
+  _abortController = null;
+
   _container = null;
   _svgCanvas = null;
   _preview = null;
@@ -423,11 +429,11 @@ function _populateSizeSelect() {
   }
 }
 
-function _bindToolbar() {
+function _bindToolbar(signal) {
   // Validate button
   const validateBtn = document.getElementById('validate-btn');
   if (validateBtn) {
-    validateBtn.addEventListener('click', () => _validateCurrentPattern());
+    validateBtn.addEventListener('click', () => _validateCurrentPattern(), { signal });
   }
 
   // Fit view button
@@ -438,7 +444,7 @@ function _bindToolbar() {
         _svgCanvas.fitToPattern(_currentPattern);
         _dirty = true;
       }
-    });
+    }, { signal });
   }
 
   // Size select
@@ -447,7 +453,7 @@ function _bindToolbar() {
     sizeSelect.addEventListener('change', (e) => {
       _selectedSize = e.target.value;
       _createDefaultPattern();
-    });
+    }, { signal });
   }
 
   // Snap toggle
@@ -455,7 +461,7 @@ function _bindToolbar() {
   if (snapToggle) {
     snapToggle.addEventListener('change', (e) => {
       updateNested('settings.snapToGrid', e.target.checked);
-    });
+    }, { signal });
   }
 
   // Seam allowance toggle
@@ -464,7 +470,7 @@ function _bindToolbar() {
     seamToggle.addEventListener('change', (e) => {
       updateNested('settings.showSeamAllowances', e.target.checked);
       _dirty = true;
-    });
+    }, { signal });
   }
 }
 
@@ -489,7 +495,8 @@ function _showProceedButton() {
   btn.className = 'btn btn-primary';
   btn.style.cssText = 'margin-top:10px; width:100%;';
   btn.textContent = 'Proceed to Fabric \u2192';
-  btn.addEventListener('click', _proceedToMaterial);
+  // Use the same AbortController signal so this listener is also cleaned up on unmount
+  btn.addEventListener('click', _proceedToMaterial, { signal: _abortController?.signal });
   panel.appendChild(btn);
 }
 
