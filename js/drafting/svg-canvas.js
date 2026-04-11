@@ -182,6 +182,11 @@ export class SVGCanvas {
     this._selectedAnchorId = anchorId;
   }
 
+  /** Get the currently selected anchor ID, or null */
+  getSelectedAnchorId() {
+    return this._selectedAnchorId;
+  }
+
   /** Set the hovered anchor (visual highlight) */
   setHoveredAnchor(anchorId) {
     this._hoveredAnchorId = anchorId;

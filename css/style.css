@@ -287,3 +287,34 @@ html, body {
   padding: 4px 10px;
   font-size: 11px;
 }
+
+/* --- Accessibility: Focus Indicators ---
+   :focus-visible only shows when navigating by keyboard (not pointer/touch).
+   Uses the accent color to keep focus rings consistent with the design system. */
+
+/* Suppress browser default outline universally; we add our own below */
+:focus {
+  outline: none;
+}
+
+/* Keyboard-only focus ring for nav tabs */
+.nav-tab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+/* Keyboard-only focus ring for buttons */
+.btn:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Keyboard-only focus ring for form controls */
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-color: var(--color-accent) !important;
+}

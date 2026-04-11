@@ -26,7 +26,14 @@ export function setActiveTab(screenId) {
   const tabs = document.querySelectorAll('.nav-tab');
   for (const tab of tabs) {
     const id = tab.getAttribute('data-screen');
-    tab.classList.toggle('active', id === screenId);
+    const isActive = id === screenId;
+    tab.classList.toggle('active', isActive);
+    // Communicate current page to screen readers
+    if (isActive) {
+      tab.setAttribute('aria-current', 'page');
+    } else {
+      tab.removeAttribute('aria-current');
+    }
   }
 }
 
@@ -72,6 +79,15 @@ export function showToast(message, type = 'info', durationMs = 2500) {
   `;
 
   document.body.appendChild(toast);
+
+  // Announce to screen readers via the aria-live region
+  const announcer = document.getElementById('a11y-announcer');
+  if (announcer) {
+    // Clear first so repeated identical messages still re-announce
+    announcer.textContent = '';
+    // Use rAF to ensure the DOM change is observed by the AT
+    requestAnimationFrame(() => { announcer.textContent = message; });
+  }
 
   // Fade in
   requestAnimationFrame(() => {

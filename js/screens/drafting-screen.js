@@ -149,6 +149,9 @@ export function onInput(event) {
     case INPUT.MOVE:
       _onHover(event);
       break;
+    case INPUT.KEY:
+      _onKey(event);
+      break;
   }
 }
 
@@ -280,6 +283,104 @@ function _findAnchorInPattern(svgX, svgY) {
     }
   }
   return null;
+}
+
+// --- Keyboard Shortcuts ---
+
+function _onKey(event) {
+  if (!_currentPattern) return;
+
+  const { key, shiftKey } = event;
+
+  // Arrow keys: nudge selected anchor
+  const NUDGE = shiftKey ? DRAFTING.GRID_SPACING * 5 : DRAFTING.GRID_SPACING;
+  const selectedId = _svgCanvas?.getSelectedAnchorId?.();
+
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+    if (!selectedId) {
+      // Nothing selected — Tab to first anchor then bail
+      _selectNextAnchor();
+      return;
+    }
+    const dx = key === 'ArrowLeft' ? -NUDGE : key === 'ArrowRight' ? NUDGE : 0;
+    const dy = key === 'ArrowUp'   ? -NUDGE : key === 'ArrowDown'  ? NUDGE : 0;
+    _nudgeSelectedAnchor(selectedId, dx, dy);
+    return;
+  }
+
+  // Tab: cycle through anchors
+  if (key === 'Tab') {
+    _selectNextAnchor(shiftKey);
+    return;
+  }
+
+  // Enter or Space: validate pattern
+  if (key === 'Enter' || key === ' ') {
+    _validateCurrentPattern();
+    return;
+  }
+
+  // 'f': fit view
+  if (key === 'f' || key === 'F') {
+    if (_svgCanvas && _currentPattern) {
+      _svgCanvas.fitToPattern(_currentPattern);
+      _dirty = true;
+    }
+    return;
+  }
+
+  // 's': toggle snap
+  if (key === 's' || key === 'S') {
+    const state = getState();
+    const next = !state.settings.snapToGrid;
+    updateNested('settings.snapToGrid', next);
+    const snapEl = document.getElementById('snap-toggle');
+    if (snapEl) snapEl.checked = next;
+    showToast(`Snap ${next ? 'on' : 'off'}`, 'info', 1200);
+    return;
+  }
+}
+
+/** Nudge the currently selected anchor by (dx, dy) in SVG-space */
+function _nudgeSelectedAnchor(anchorId, dx, dy) {
+  for (const piece of _currentPattern.pieces) {
+    const anchor = piece.anchors.find(a => a.id === anchorId);
+    if (anchor) {
+      _currentPattern = moveAnchor(
+        _currentPattern,
+        piece.id,
+        anchorId,
+        anchor.x + dx,
+        anchor.y + dy
+      );
+      _dirty = true;
+      if (_preview && _currentPattern) _preview.render(_currentPattern);
+      return;
+    }
+  }
+}
+
+/** Select the next (or previous) anchor across all pattern pieces */
+function _selectNextAnchor(reverse = false) {
+  if (!_currentPattern || !_svgCanvas) return;
+
+  // Build flat list of all anchors
+  const all = [];
+  for (const piece of _currentPattern.pieces) {
+    for (const anchor of piece.anchors) {
+      all.push(anchor.id);
+    }
+  }
+  if (all.length === 0) return;
+
+  const currentId = _svgCanvas.getSelectedAnchorId?.();
+  const idx = currentId ? all.indexOf(currentId) : -1;
+  const next = reverse
+    ? (idx <= 0 ? all.length - 1 : idx - 1)
+    : (idx >= all.length - 1 ? 0 : idx + 1);
+
+  _svgCanvas.setSelectedAnchor(all[next]);
+  _dirty = true;
 }
 
 function _createDefaultPattern() {
