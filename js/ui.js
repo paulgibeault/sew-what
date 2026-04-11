@@ -116,13 +116,14 @@ const SCREEN_SUBTITLES = {
 export function onScreenChanged(screenId) {
   setActiveTab(screenId);
   setSubtitle(SCREEN_SUBTITLES[screenId] || 'Parametric Couture Studio');
-  _updateTabLocks();
+  updateTabLocks();
 }
 
 /**
  * Update nav tab locked/unlocked visual state based on active project stage.
+ * Exported so screens can refresh lock state after in-screen validation changes.
  */
-function _updateTabLocks() {
+export function updateTabLocks() {
   const state = getState();
   const ap = state.activeProject;
 
@@ -132,6 +133,7 @@ function _updateTabLocks() {
     let locked = false;
 
     if (screenId === SCREEN.MATERIAL) {
+      // Material unlocks once pattern is validated — works with or without activeProject
       locked = !ap || !ap.pattern || !ap.pattern.validated;
     } else if (screenId === SCREEN.ASSEMBLY) {
       locked = !ap || !ap.materialLayout;
