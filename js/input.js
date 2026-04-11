@@ -16,6 +16,7 @@ export const INPUT = Object.freeze({
   PINCH:      'pinch',
   PAN:        'pan',
   KEY:        'key',        // keyboard shortcut (desktop players)
+  KEY_UP:     'key-up',     // keyboard key release (for hold detection)
 });
 
 // --- Pointer Types ---
@@ -59,9 +60,12 @@ export class InputManager {
     el.removeEventListener('pointercancel', this._bound.up);
     el.removeEventListener('wheel', this._bound.wheel);
     el.removeEventListener('contextmenu', this._bound.context);
-    // Remove keyboard listener from document
+    // Remove keyboard listeners from document
     if (this._bound.keydown) {
       document.removeEventListener('keydown', this._bound.keydown);
+    }
+    if (this._bound.keyup) {
+      document.removeEventListener('keyup', this._bound.keyup);
     }
     this._listeners.clear();
     this._pointers.clear();
@@ -321,5 +325,18 @@ export class InputManager {
       });
     };
     document.addEventListener('keydown', this._bound.keydown);
+
+    this._bound.keyup = (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      this._emit(INPUT.KEY_UP, {
+        key:      e.key,
+        code:     e.code,
+        shiftKey: e.shiftKey,
+        altKey:   e.altKey,
+      });
+    };
+    document.addEventListener('keyup', this._bound.keyup);
   }
 }

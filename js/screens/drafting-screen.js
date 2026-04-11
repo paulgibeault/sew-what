@@ -13,7 +13,7 @@ import { createPattern, moveAnchor } from '../drafting/pattern.js';
 import { findAnchorAt, constrainPosition } from '../drafting/anchors.js';
 import { validatePattern } from '../drafting/validator.js';
 import { loadMeasurements, getMeasurementSet, getProjectTemplate, getAvailableSizes } from '../drafting/measurements.js';
-import { showToast } from '../ui.js';
+import { showToast, updateTabLocks } from '../ui.js';
 import { navigateTo } from '../navigation.js';
 import { deepClone } from '../utils.js';
 
@@ -29,6 +29,7 @@ let _lastPanPos = null;
 let _dirty = true;
 let _selectedSize = 'M';
 let _abortController = null; // AbortController for toolbar/proceed listener cleanup
+let _validateTimer = null;   // debounce timer for auto-validation
 
 // --- Lifecycle ---
 
@@ -61,7 +62,6 @@ export async function mount(container) {
       </div>
       <div class="toolbar-separator"></div>
       <button class="btn btn-sm" id="fit-btn">Fit View</button>
-      <button class="btn btn-sm btn-primary" id="validate-btn">Validate</button>
     </div>
     <div style="display:flex; flex:1; overflow:hidden;">
       <div class="drafting-canvas-area" id="drafting-svg-area">
@@ -120,6 +120,9 @@ export function unmount() {
   // Abort all toolbar listeners added during this mount cycle
   _abortController?.abort();
   _abortController = null;
+
+  // Cancel any pending validation
+  if (_validateTimer) { clearTimeout(_validateTimer); _validateTimer = null; }
 
   _container = null;
   _svgCanvas = null;
@@ -252,6 +255,7 @@ function _onDrag(event) {
 }
 
 function _onDragEnd(event) {
+  const wasDraggingAnchor = !!_draggingAnchor;
   _draggingAnchor = null;
   _isPanning = false;
   _lastPanPos = null;
@@ -259,6 +263,11 @@ function _onDragEnd(event) {
   // Update preview after drag
   if (_preview && _currentPattern) {
     _preview.render(_currentPattern);
+  }
+
+  // Auto-validate after anchor drag
+  if (wasDraggingAnchor) {
+    _scheduleValidation();
   }
 }
 
@@ -320,9 +329,11 @@ function _onKey(event) {
     return;
   }
 
-  // Enter or Space: validate pattern
+  // Enter or Space: proceed to Material (if pattern is valid)
   if (key === 'Enter' || key === ' ') {
-    _validateCurrentPattern();
+    if (_currentPattern?.validated) {
+      _proceedToMaterial();
+    }
     return;
   }
 
@@ -361,6 +372,7 @@ function _nudgeSelectedAnchor(anchorId, dx, dy) {
       );
       _dirty = true;
       if (_preview && _currentPattern) _preview.render(_currentPattern);
+      _scheduleValidation();
       return;
     }
   }
@@ -410,8 +422,10 @@ function _createDefaultPattern() {
     _svgCanvas.fitToPattern(_currentPattern);
   }
 
-  _setValidationStatus('Drag the corner points (\u25CF) to reshape pieces, then click Validate', null);
   _dirty = true;
+
+  // Run initial validation so tab locks are correct from the start
+  _scheduleValidation();
 }
 
 function _layoutPieces(pattern) {
@@ -444,6 +458,15 @@ function _layoutPieces(pattern) {
   }
 }
 
+/** Schedule a debounced auto-validation (400ms after last change) */
+function _scheduleValidation() {
+  if (_validateTimer) clearTimeout(_validateTimer);
+  _validateTimer = setTimeout(() => {
+    _validateTimer = null;
+    _validateCurrentPattern();
+  }, 400);
+}
+
 function _validateCurrentPattern() {
   if (!_currentPattern) return;
 
@@ -452,15 +475,30 @@ function _validateCurrentPattern() {
 
   if (result.valid) {
     _setValidationStatus('Pattern Valid', true);
-    showToast('Pattern validated successfully!', 'success');
 
-    // Save validated pattern to active project state immediately
+    // Save validated pattern to active project state (auto-create project if needed)
     const state = getState();
-    if (state.activeProject) {
+    const ap = state.activeProject;
+    if (ap) {
       updateState({
         activeProject: {
-          ...state.activeProject,
+          ...ap,
           pattern: deepClone(_currentPattern),
+        },
+      });
+    } else {
+      // Auto-create a minimal active project so tab locks work
+      updateState({
+        activeProject: {
+          id: 'auto-' + Date.now(),
+          projectId: 'apron',
+          name: 'Apron',
+          tier: 'beginner',
+          stage: STAGE.DRAFTING,
+          pattern: deepClone(_currentPattern),
+          materialLayout: null,
+          assemblyState: null,
+          score: { accuracy: 0, efficiency: 0, craftsmanship: 0 },
         },
       });
     }
@@ -468,10 +506,11 @@ function _validateCurrentPattern() {
     _showProceedButton();
   } else {
     _setValidationStatus('Validation Failed', false, result.errors);
-    showToast(`${result.errors.length} issue(s) found`, 'error');
     _hideProceedButton();
   }
 
+  // Always refresh tab locks so Material unlocks/locks in real time
+  updateTabLocks();
   _dirty = true;
 }
 
@@ -531,12 +570,6 @@ function _populateSizeSelect() {
 }
 
 function _bindToolbar(signal) {
-  // Validate button
-  const validateBtn = document.getElementById('validate-btn');
-  if (validateBtn) {
-    validateBtn.addEventListener('click', () => _validateCurrentPattern(), { signal });
-  }
-
   // Fit view button
   const fitBtn = document.getElementById('fit-btn');
   if (fitBtn) {
@@ -553,7 +586,7 @@ function _bindToolbar(signal) {
   if (sizeSelect) {
     sizeSelect.addEventListener('change', (e) => {
       _selectedSize = e.target.value;
-      _createDefaultPattern();
+      _createDefaultPattern();  // _createDefaultPattern schedules validation
     }, { signal });
   }
 
@@ -580,16 +613,6 @@ function _bindToolbar(signal) {
 function _showProceedButton() {
   const panel = document.getElementById('validation-panel');
   if (!panel || panel.querySelector('#proceed-btn')) return;
-
-  const state = getState();
-  if (!state.activeProject) {
-    // Show hint if no active project
-    const hint = document.createElement('div');
-    hint.style.cssText = 'font-size:11px; color:var(--color-text-muted); margin-top:8px;';
-    hint.textContent = 'Start a project from the Queue to proceed.';
-    panel.appendChild(hint);
-    return;
-  }
 
   const btn = document.createElement('button');
   btn.id = 'proceed-btn';
